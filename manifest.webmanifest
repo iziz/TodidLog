@@ -1,0 +1,17 @@
+{
+  "name": "Daily Work Log",
+  "short_name": "Work Log",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4f1ea",
+  "theme_color": "#f4f1ea",
+  "description": "A local weekly timeline for daily work sessions and Pomodoro tracking.",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Daily Work Log</title>
+    <link rel="manifest" href="./manifest.webmanifest?v=93" />
+    <link rel="stylesheet" href="./styles.css?v=93" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="planner" aria-label="Work log">
+        <header class="planner-header">
+          <div>
+            <p class="date-label" id="selectedDateLabel"></p>
+            <button class="today-link" id="goTodayBtn" type="button" aria-label="Go to today">Today</button>
+          </div>
+        </header>
+
+        <section class="calendar-surface" id="calendarSurface" aria-label="Date picker">
+          <div class="calendar-action-row">
+            <div class="calendar-pager">
+              <button class="icon-button calendar-arrow" id="prevCalendarBtn" type="button" aria-label="Previous week">‹</button>
+              <strong class="calendar-context-title" id="calendarContextTitle"></strong>
+              <button class="icon-button calendar-arrow" id="nextCalendarBtn" type="button" aria-label="Next week">›</button>
+            </div>
+            <button class="calendar-toggle" id="calendarToggleBtn" type="button" aria-expanded="false" aria-controls="monthInline">Month View</button>
+          </div>
+          <div class="calendar-body" id="calendarBody">
+            <div class="week-nav" id="weekNav">
+              <nav class="week-strip" id="weekStrip" aria-label="Weekly dates"></nav>
+            </div>
+            <div class="month-inline calendar-view-hidden" id="monthInline" aria-hidden="true">
+              <div class="month-weekdays">
+                <span>SUN</span><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span>
+              </div>
+              <div class="month-grid" id="monthGrid"></div>
+            </div>
+          </div>
+          <div class="calendar-footer">
+            <button class="report-button hidden" id="monthReportBtn" type="button" aria-label="Copy monthly report">Report</button>
+            <p class="context-total calendar-total"><span id="calendarTotalLabel">Week</span><strong id="calendarTotalValue">0m</strong></p>
+          </div>
+        </section>
+
+        <section class="timer-card" aria-label="Timer">
+          <div>
+            <p class="section-kicker">Timer</p>
+            <div class="timer-display" id="timerDisplay">00:00:00</div>
+            <p class="timer-status" id="timerStatus">Ready</p>
+          </div>
+          <div class="timer-actions">
+            <button class="timer-icon-button" id="startTimerBtn" type="button" aria-label="Start timer">
+              <img src="./assets/timer_start.png" alt="" aria-hidden="true" />
+            </button>
+            <button class="timer-icon-button hidden" id="stopTimerBtn" type="button" aria-label="Stop timer">
+              <img src="./assets/timer_stop.png" alt="" aria-hidden="true" />
+            </button>
+          </div>
+        </section>
+
+        <section class="task-section" aria-label="Daily tasks">
+          <div class="section-title-row">
+            <div>
+              <p class="section-kicker">Tasks</p>
+            </div>
+            <div class="selection-actions">
+              <span id="selectionCount">0 selected</span>
+              <button class="selection-button hidden" id="groupSelectedBtn" type="button" aria-label="Merge selected tasks">Merge</button>
+              <button class="selection-button danger-action hidden" id="deleteSelectedBtn" type="button" aria-label="Delete selected tasks">Delete</button>
+            </div>
+          </div>
+          <div class="task-list" id="taskList"></div>
+          <p class="empty-message hidden" id="emptyMessage">No more tasks today!</p>
+          <p class="context-total daily-total"><span>Today</span><strong id="dailyTotal">0m</strong></p>
+          <button class="floating-add" id="openQuickModalBtn" type="button" aria-label="Add task">
+            <img src="./assets/add_list.png" alt="" aria-hidden="true" />
+          </button>
+        </section>
+      </section>
+
+    </main>
+
+    <dialog class="record-modal" id="recordModal">
+      <form method="dialog" class="modal-card" id="recordForm">
+        <div class="modal-header">
+          <div>
+            <p class="section-kicker" id="modalKicker">Record</p>
+            <input class="modal-title-input" id="recordTitle" type="text" placeholder="Title" aria-label="Title" />
+          </div>
+          <button class="icon-button" id="closeModalBtn" type="button" aria-label="Close">×</button>
+        </div>
+
+        <div class="modal-time" id="modalTime"></div>
+        <div class="modal-time-row" id="modalTimeEditor">
+          <label>
+            Start
+            <input id="recordStart" type="text" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="00:00" />
+          </label>
+          <label>
+            End
+            <input id="recordEnd" type="text" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="00:00" />
+          </label>
+        </div>
+
+        <div class="field-block">
+          <label for="recordTags">Tags</label>
+          <input id="recordTags" type="text" placeholder="Type a tag and press Enter" />
+          <div class="tag-chip-list" id="recordTagChips" aria-label="Tag list"></div>
+        </div>
+        <label>
+          Memo
+          <textarea id="recordMemo" rows="4" placeholder="Notes"></textarea>
+        </label>
+        <p class="form-error" id="modalError" role="alert"></p>
+        <div class="modal-actions">
+          <button class="button danger hidden" id="deleteRecordBtn" type="button">Delete</button>
+          <button class="button primary" id="saveRecordBtn" type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js?v=93" defer></script>
+  </body>
+</html>
