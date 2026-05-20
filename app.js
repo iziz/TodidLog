@@ -1,4 +1,4 @@
-import { computeDailyFortune } from "./vendor/fortune-engine.js";
+import { computeDailyFortune, computeNatalSummary, resolveBirthplace, searchBirthplaces } from "./vendor/fortune-engine.js";
 
 const STORAGE_KEY = "daily-work-log.sessions.v1";
 const GROUPS_KEY = "daily-work-log.groups.v1";
@@ -6,6 +6,8 @@ const ACTIVE_KEY = "daily-work-log.active.v1";
 const FORTUNE_PROFILE_KEY = "daily-work-log.fortune-profile.v1";
 const LEGACY_DEFAULT_TITLE = "\uC791\uC5C5 \uAE30\uB85D";
 const LEGACY_MERGED_TITLE = "\uBCD1\uD569 \uC791\uC5C5";
+let fortuneRenderId = 0;
+let fortuneSettingsPreviewId = 0;
 
 const state = {
   selectedDate: toDateKey(new Date()),
@@ -70,6 +72,9 @@ const els = {
   closeFortuneSettingsBtn: document.querySelector("#closeFortuneSettingsBtn"),
   fortuneBirthDate: document.querySelector("#fortuneBirthDate"),
   fortuneBirthTime: document.querySelector("#fortuneBirthTime"),
+  fortuneBirthplace: document.querySelector("#fortuneBirthplace"),
+  fortuneBirthplaceOptions: document.querySelector("#fortuneBirthplaceOptions"),
+  fortuneNatalPreview: document.querySelector("#fortuneNatalPreview"),
   fortuneGender: document.querySelector("#fortuneGender"),
   fortuneLanguage: document.querySelector("#fortuneLanguage"),
   fortuneUnknownTime: document.querySelector("#fortuneUnknownTime"),
@@ -108,6 +113,13 @@ function wireEvents() {
   els.closeFortuneSettingsBtn.addEventListener("click", closeFortuneSettings);
   els.deleteFortuneProfileBtn.addEventListener("click", deleteFortuneProfile);
   els.fortuneUnknownTime.addEventListener("change", updateFortuneTimeState);
+  els.fortuneBirthplace.addEventListener("input", updateBirthplaceSuggestions);
+  els.fortuneBirthDate.addEventListener("input", renderFortuneSettingsNatalPreview);
+  els.fortuneBirthTime.addEventListener("input", renderFortuneSettingsNatalPreview);
+  els.fortuneBirthplace.addEventListener("input", renderFortuneSettingsNatalPreview);
+  els.fortuneGender.addEventListener("change", renderFortuneSettingsNatalPreview);
+  els.fortuneLanguage.addEventListener("change", renderFortuneSettingsNatalPreview);
+  els.fortuneUnknownTime.addEventListener("change", renderFortuneSettingsNatalPreview);
   els.recordForm.addEventListener("submit", saveModal);
   els.recordModal.addEventListener("click", confirmBackdropClose);
   els.recordModal.addEventListener("cancel", confirmDialogCancel);
@@ -139,7 +151,8 @@ function renderHeader() {
   renderFortuneSummary();
 }
 
-function renderFortuneSummary() {
+async function renderFortuneSummary() {
+  const renderId = ++fortuneRenderId;
   if (!state.fortuneProfile) {
     els.fortuneSummary.classList.add("hidden");
     els.fortuneSummary.textContent = "";
@@ -147,10 +160,12 @@ function renderFortuneSummary() {
   }
 
   try {
-    const fortune = computeDailyFortune(normalizedFortuneProfile(state.fortuneProfile), state.selectedDate);
+    const fortune = await computeDailyFortune(normalizedFortuneProfile(state.fortuneProfile), state.selectedDate);
+    if (renderId !== fortuneRenderId) return;
     renderFortuneSummaryContent(fortune);
     els.fortuneSummary.classList.remove("hidden");
   } catch {
+    if (renderId !== fortuneRenderId) return;
     els.fortuneSummary.classList.add("hidden");
     els.fortuneSummary.textContent = "";
   }
@@ -591,26 +606,23 @@ function openFortuneSettings() {
   const profile = normalizedFortuneProfile(state.fortuneProfile || {});
   els.fortuneBirthDate.value = profile.birthDate || "";
   els.fortuneBirthTime.value = profile.birthTime || "12:00";
+  els.fortuneBirthplace.value = profile.birthplace?.label || "";
   els.fortuneGender.value = profile.gender || "M";
   els.fortuneLanguage.value = profile.language;
   els.fortuneUnknownTime.checked = Boolean(profile.unknownTime);
   els.fortuneSettingsError.textContent = "";
   els.deleteFortuneProfileBtn.classList.toggle("hidden", !state.fortuneProfile);
+  updateBirthplaceSuggestions();
   updateFortuneTimeState();
+  renderFortuneSettingsNatalPreview();
   els.fortuneSettingsModal.showModal();
 }
 
 function saveFortuneSettings(event) {
   event.preventDefault();
-  const profile = {
-    birthDate: els.fortuneBirthDate.value,
-    birthTime: els.fortuneBirthTime.value || "12:00",
-    gender: els.fortuneGender.value === "F" ? "F" : "M",
-    language: els.fortuneLanguage.value === "ko" ? "ko" : "en",
-    unknownTime: els.fortuneUnknownTime.checked,
-  };
+  const { profile, birthplaceText } = fortuneProfileFromSettingsForm();
 
-  const error = validateFortuneProfile(profile);
+  const error = validateFortuneProfile(profile, birthplaceText);
   if (error) {
     els.fortuneSettingsError.textContent = error;
     return;
@@ -628,6 +640,7 @@ function deleteFortuneProfile() {
 }
 
 function closeFortuneSettings() {
+  fortuneSettingsPreviewId += 1;
   els.fortuneSettingsModal.close();
 }
 
@@ -639,12 +652,88 @@ function updateFortuneTimeState() {
   els.fortuneBirthTime.disabled = els.fortuneUnknownTime.checked;
 }
 
-function validateFortuneProfile(profile) {
+function updateBirthplaceSuggestions() {
+  const places = searchBirthplaces(els.fortuneBirthplace.value);
+  els.fortuneBirthplaceOptions.replaceChildren(
+    ...places.map((place) => {
+      const option = document.createElement("option");
+      option.value = place.label;
+      option.label = place.label;
+      return option;
+    }),
+  );
+}
+
+async function renderFortuneSettingsNatalPreview() {
+  const previewId = ++fortuneSettingsPreviewId;
+  els.fortuneNatalPreview.classList.add("hidden");
+  els.fortuneNatalPreview.replaceChildren();
+
+  const { profile, birthplaceText } = fortuneProfileFromSettingsForm();
+  if (!birthplaceText || validateFortuneProfile(profile, birthplaceText)) return;
+
+  try {
+    const summary = await computeNatalSummary(profile);
+    if (previewId !== fortuneSettingsPreviewId || !summary) return;
+    renderFortuneSettingsNatalSummary(summary);
+    els.fortuneNatalPreview.classList.remove("hidden");
+  } catch {
+    if (previewId !== fortuneSettingsPreviewId) return;
+    els.fortuneNatalPreview.classList.add("hidden");
+    els.fortuneNatalPreview.replaceChildren();
+  }
+}
+
+function renderFortuneSettingsNatalSummary(summary) {
+  const title = document.createElement("span");
+  title.className = "fortune-natal-title";
+  title.textContent = summary.title;
+
+  const details = document.createElement("span");
+  details.className = "fortune-summary-details";
+
+  for (const item of summary.items || []) {
+    const row = document.createElement("span");
+    row.className = "fortune-summary-detail";
+
+    const label = document.createElement("span");
+    label.className = "fortune-summary-detail-label";
+    label.textContent = item.label;
+
+    const text = document.createElement("span");
+    text.className = "fortune-summary-detail-text";
+    text.textContent = item.text;
+
+    row.append(label, text);
+    details.append(row);
+  }
+
+  els.fortuneNatalPreview.replaceChildren(title, details);
+}
+
+function fortuneProfileFromSettingsForm() {
+  const birthplaceText = els.fortuneBirthplace.value.trim();
+  const birthplace = birthplaceText ? resolveBirthplace(birthplaceText) : null;
+  return {
+    birthplaceText,
+    profile: {
+      birthDate: els.fortuneBirthDate.value,
+      birthTime: els.fortuneBirthTime.value || "12:00",
+      birthplace,
+      gender: els.fortuneGender.value === "F" ? "F" : "M",
+      language: els.fortuneLanguage.value === "ko" ? "ko" : "en",
+      unknownTime: els.fortuneUnknownTime.checked,
+    },
+  };
+}
+
+function validateFortuneProfile(profile, birthplaceText = "") {
   if (!profile.birthDate) return "Enter your birth date.";
   const [year, month, day] = profile.birthDate.split("-").map(Number);
   const date = new Date(year, month - 1, day);
   if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return "Enter a valid birth date.";
   if (!profile.unknownTime && !isValidTimeValue(normalizeTimeValue(profile.birthTime))) return "Enter a valid birth time.";
+  if (birthplaceText && !profile.birthplace) return "Select a birthplace from the list or leave it blank.";
   return "";
 }
 
@@ -652,7 +741,23 @@ function normalizedFortuneProfile(profile) {
   if (!profile) return null;
   return {
     ...profile,
+    birthplace: normalizedBirthplace(profile.birthplace),
     language: profile.language === "ko" || profile.language === "en" ? profile.language : defaultFortuneLanguage(),
+  };
+}
+
+function normalizedBirthplace(place) {
+  if (!place) return null;
+  const lat = Number(place.lat);
+  const lon = Number(place.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return {
+    label: String(place.label || place.name || "").trim(),
+    name: String(place.name || "").trim(),
+    country: String(place.country || "").trim(),
+    region: String(place.region || "").trim(),
+    lat,
+    lon,
   };
 }
 

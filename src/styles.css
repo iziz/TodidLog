@@ -245,6 +245,30 @@ h1 {
   line-height: 1.4;
 }
 
+.fortune-natal-summary {
+  display: grid;
+  gap: 4px;
+  margin-top: 7px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(219, 226, 232, 0.82);
+}
+
+.fortune-settings-chart {
+  margin-top: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(219, 226, 232, 0.82);
+  border-radius: var(--radius);
+  background: #f7f9fb;
+}
+
+.fortune-natal-title {
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
 h2 {
   margin-bottom: 0;
   font-size: 21px;
@@ -539,6 +563,12 @@ label {
   display: block;
   color: var(--muted);
   font-size: 12px;
+  font-weight: 850;
+}
+
+.label-note {
+  color: #a3adb5;
+  font-size: 10px;
   font-weight: 850;
 }
 

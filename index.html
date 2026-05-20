@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>TodidLog</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=136" />
-    <link rel="stylesheet" href="./styles.css?v=136" />
+    <link rel="manifest" href="./manifest.webmanifest?v=138" />
+    <link rel="stylesheet" href="./styles.css?v=138" />
   </head>
   <body>
     <main class="app-shell">
@@ -153,6 +153,11 @@
           </label>
         </div>
         <label>
+          Birthplace <span class="label-note">Optional</span>
+          <input id="fortuneBirthplace" type="text" list="fortuneBirthplaceOptions" placeholder="Seoul, Busan, Tokyo" autocomplete="off" />
+          <datalist id="fortuneBirthplaceOptions"></datalist>
+        </label>
+        <label>
           Fortune language
           <select id="fortuneLanguage">
             <option value="en">English</option>
@@ -163,6 +168,7 @@
           <input id="fortuneUnknownTime" type="checkbox" />
           Unknown time
         </label>
+        <div class="fortune-natal-summary fortune-settings-chart hidden" id="fortuneNatalPreview"></div>
         <p class="form-error" id="fortuneSettingsError" role="alert"></p>
         <div class="modal-actions">
           <button class="button danger hidden" id="deleteFortuneProfileBtn" type="button">Delete</button>
@@ -171,6 +177,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=136" type="module"></script>
+    <script src="./app.js?v=138" type="module"></script>
   </body>
 </html>

@@ -1,12 +1,66 @@
 import { calculateSaju } from "@orrery/core/saju";
 import { analyzePillarRelations, getFourPillars } from "@orrery/core/pillars";
+import { filterCities, formatCityName } from "@orrery/core/cities";
+import { ZODIAC_KO, calculateNatal } from "@orrery/core/natal";
 
 const NATAL_PILLAR_NAMES = ["hour", "day", "month", "year"];
 const RELATION_PRIORITY = ["沖", "刑", "破", "害", "合", "半合", "三合", "方合"];
+const MAX_BIRTHPLACE_RESULTS = 12;
+
+const CITY_ALIASES = [
+  ["Seoul", "서울"],
+  ["Busan", "부산"],
+  ["Incheon", "인천"],
+  ["Daegu", "대구"],
+  ["Daejeon", "대전"],
+  ["Gwangju", "광주"],
+  ["Ulsan", "울산"],
+  ["Jeju", "제주"],
+  ["Tokyo", "도쿄"],
+  ["Osaka", "오사카"],
+  ["Kyoto", "교토"],
+  ["Fukuoka", "후쿠오카"],
+  ["Sapporo", "삿포로"],
+  ["Nagoya", "나고야"],
+  ["Beijing", "베이징"],
+  ["Shanghai", "상하이"],
+  ["Hong Kong", "홍콩"],
+  ["Taipei", "타이베이"],
+  ["Singapore", "싱가포르"],
+  ["Bangkok", "방콕"],
+];
 
 const COPY = {
   en: {
     title: "Daily fortune",
+    natalTitle: "Natal summary",
+    unknownTimeNote: "Birth time is unknown, so angles and houses are not shown.",
+    natalLabels: {
+      place: "Place",
+      angles: "Angles",
+      planets: "Planets",
+      aspect: "Aspect",
+      note: "Note",
+    },
+    planets: {
+      Sun: "Sun",
+      Moon: "Moon",
+      Mercury: "Mercury",
+      Venus: "Venus",
+      Mars: "Mars",
+      Jupiter: "Jupiter",
+      Saturn: "Saturn",
+      Uranus: "Uranus",
+      Neptune: "Neptune",
+      Pluto: "Pluto",
+    },
+    aspects: {
+      conjunction: "conjunct",
+      sextile: "sextile",
+      square: "square",
+      trine: "trine",
+      opposition: "opposite",
+    },
     detailLabels: {
       flow: "Flow",
       action: "Action",
@@ -110,6 +164,34 @@ const COPY = {
   },
   ko: {
     title: "오늘의 운세",
+    natalTitle: "출생 차트",
+    unknownTimeNote: "출생 시간을 모르는 상태라 앵글과 하우스는 표시하지 않습니다.",
+    natalLabels: {
+      place: "장소",
+      angles: "앵글",
+      planets: "행성",
+      aspect: "각도",
+      note: "참고",
+    },
+    planets: {
+      Sun: "태양",
+      Moon: "달",
+      Mercury: "수성",
+      Venus: "금성",
+      Mars: "화성",
+      Jupiter: "목성",
+      Saturn: "토성",
+      Uranus: "천왕성",
+      Neptune: "해왕성",
+      Pluto: "명왕성",
+    },
+    aspects: {
+      conjunction: "합",
+      sextile: "육각",
+      square: "사각",
+      trine: "삼각",
+      opposition: "대립",
+    },
     detailLabels: {
       flow: "흐름",
       action: "추천",
@@ -250,6 +332,23 @@ export function computeDailyFortune(profile, dateKey) {
   };
 }
 
+export async function computeNatalSummary(profile) {
+  const language = normalizeLanguage(profile?.language);
+  const copy = COPY[language];
+  const birthInput = normalizeBirthInput(profile);
+  return buildNatalSummary(copy, birthInput, profile, language);
+}
+
+export function searchBirthplaces(query) {
+  return collectBirthplaceMatches(query).slice(0, MAX_BIRTHPLACE_RESULTS);
+}
+
+export function resolveBirthplace(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return collectBirthplaceMatches(text).find((place) => normalizeSearchText(place.label) === normalizeSearchText(text)) || null;
+}
+
 function relationCopy(copy, relation) {
   if (isElementRelation(relation) && copy.elementFlows[relation.detail]) {
     return copy.elementFlows[relation.detail];
@@ -271,6 +370,133 @@ function buildDetailItems(copy, relation) {
     label: copy.detailLabels[key],
     text: source[key],
   }));
+}
+
+async function buildNatalSummary(copy, birthInput, profile, language) {
+  const birthplace = normalizeBirthplace(profile?.birthplace);
+  if (!birthplace) return null;
+
+  const natal = await calculateNatal(
+    {
+      ...birthInput,
+      latitude: birthplace.lat,
+      longitude: birthplace.lon,
+    },
+    "P",
+  );
+  const items = [
+    {
+      label: copy.natalLabels.place,
+      text: birthplace.label,
+    },
+  ];
+
+  if (natal.angles) {
+    items.push({
+      label: copy.natalLabels.angles,
+      text: `ASC ${formatSign(natal.angles.asc.sign, language)} · MC ${formatSign(natal.angles.mc.sign, language)}`,
+    });
+  } else {
+    items.push({
+      label: copy.natalLabels.note,
+      text: copy.unknownTimeNote,
+    });
+  }
+
+  const sun = findPlanet(natal, "Sun");
+  const moon = findPlanet(natal, "Moon");
+  const planetText = [formatPlanetPlacement(copy, sun, language), formatPlanetPlacement(copy, moon, language)]
+    .filter(Boolean)
+    .join(" · ");
+  if (planetText) {
+    items.push({
+      label: copy.natalLabels.planets,
+      text: planetText,
+    });
+  }
+
+  const strongestAspect = natal.aspects[0];
+  if (strongestAspect) {
+    items.push({
+      label: copy.natalLabels.aspect,
+      text: `${formatPlanetName(copy, strongestAspect.planet1)} ${copy.aspects[strongestAspect.type]} ${formatPlanetName(copy, strongestAspect.planet2)} (${strongestAspect.orb.toFixed(1)}°)`,
+    });
+  }
+
+  return {
+    title: copy.natalTitle,
+    items,
+  };
+}
+
+function findPlanet(natal, planetId) {
+  return natal.planets.find((planet) => planet.id === planetId);
+}
+
+function formatPlanetPlacement(copy, planet, language) {
+  if (!planet) return "";
+  const house = planet.house ? ` ${planet.house}H` : "";
+  return `${formatPlanetName(copy, planet.id)} ${formatSign(planet.sign, language)}${house}`;
+}
+
+function formatPlanetName(copy, planetId) {
+  return copy.planets[planetId] || planetId;
+}
+
+function formatSign(sign, language) {
+  if (language === "ko") return ZODIAC_KO[sign] || sign;
+  return sign;
+}
+
+function collectBirthplaceMatches(query) {
+  const text = String(query || "").trim();
+  if (!text) return [];
+
+  const directMatches = filterCities(text).map((city) => cityToBirthplace(city));
+  const aliasMatches = CITY_ALIASES.filter(([alias]) => normalizeSearchText(alias).includes(normalizeSearchText(text)))
+    .flatMap(([alias, cityQuery]) => filterCities(cityQuery).map((city) => cityToBirthplace(city, alias)));
+
+  return dedupeBirthplaces([...aliasMatches, ...directMatches]);
+}
+
+function cityToBirthplace(city, label = formatCityName(city)) {
+  return {
+    label,
+    name: city.name,
+    country: city.country || "",
+    region: city.region || "",
+    lat: city.lat,
+    lon: city.lon,
+  };
+}
+
+function dedupeBirthplaces(places) {
+  const seen = new Set();
+  return places.filter((place) => {
+    const key = `${place.name}:${place.country}:${place.region}:${place.lat}:${place.lon}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeBirthplace(place) {
+  if (!place) return null;
+  const lat = Number(place.lat);
+  const lon = Number(place.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return {
+    label: String(place.label || place.name || "").trim(),
+    name: String(place.name || "").trim(),
+    country: String(place.country || "").trim(),
+    region: String(place.region || "").trim(),
+    lat,
+    lon,
+  };
+}
+
+function normalizeSearchText(text) {
+  return String(text || "").trim().toLowerCase();
 }
 
 function normalizeBirthInput(profile) {
