@@ -338,10 +338,32 @@ h2 {
 }
 
 .timer-card {
+  position: relative;
   align-items: stretch;
+  margin: 44px 0;
   padding: 16px;
   border-color: #edf1f5;
   box-shadow: 0 10px 26px rgba(31, 45, 61, 0.06);
+}
+
+.timer-card::before,
+.timer-card::after {
+  position: absolute;
+  left: 50%;
+  width: 34px;
+  height: 6px;
+  border-radius: 999px;
+  background: #ffe0b3;
+  content: "";
+  transform: translateX(-50%);
+}
+
+.timer-card::before {
+  top: -25px;
+}
+
+.timer-card::after {
+  bottom: -25px;
 }
 
 .timer-actions {
