@@ -1,6 +1,9 @@
+import { computeDailyFortune } from "./vendor/fortune-engine.js";
+
 const STORAGE_KEY = "daily-work-log.sessions.v1";
 const GROUPS_KEY = "daily-work-log.groups.v1";
 const ACTIVE_KEY = "daily-work-log.active.v1";
+const FORTUNE_PROFILE_KEY = "daily-work-log.fortune-profile.v1";
 const LEGACY_DEFAULT_TITLE = "\uC791\uC5C5 \uAE30\uB85D";
 const LEGACY_MERGED_TITLE = "\uBCD1\uD569 \uC791\uC5C5";
 
@@ -11,6 +14,7 @@ const state = {
   sessions: loadJson(STORAGE_KEY, []),
   groups: loadJson(GROUPS_KEY, []),
   active: loadJson(ACTIVE_KEY, null),
+  fortuneProfile: loadJson(FORTUNE_PROFILE_KEY, null),
   selectedIds: new Set(),
   isCalendarOpen: false,
   calendarAnimating: false,
@@ -22,7 +26,9 @@ const els = {
   calendarBody: document.querySelector("#calendarBody"),
   calendarContextTitle: document.querySelector("#calendarContextTitle"),
   selectedDateLabel: document.querySelector("#selectedDateLabel"),
+  fortuneSummary: document.querySelector("#fortuneSummary"),
   goTodayBtn: document.querySelector("#goTodayBtn"),
+  openFortuneSettingsBtn: document.querySelector("#openFortuneSettingsBtn"),
   calendarWeekdays: document.querySelector("#calendarWeekdays"),
   weekNav: document.querySelector("#weekNav"),
   weekStrip: document.querySelector("#weekStrip"),
@@ -59,6 +65,16 @@ const els = {
   modalError: document.querySelector("#modalError"),
   deleteRecordBtn: document.querySelector("#deleteRecordBtn"),
   closeModalBtn: document.querySelector("#closeModalBtn"),
+  fortuneSettingsModal: document.querySelector("#fortuneSettingsModal"),
+  fortuneSettingsForm: document.querySelector("#fortuneSettingsForm"),
+  closeFortuneSettingsBtn: document.querySelector("#closeFortuneSettingsBtn"),
+  fortuneBirthDate: document.querySelector("#fortuneBirthDate"),
+  fortuneBirthTime: document.querySelector("#fortuneBirthTime"),
+  fortuneGender: document.querySelector("#fortuneGender"),
+  fortuneLanguage: document.querySelector("#fortuneLanguage"),
+  fortuneUnknownTime: document.querySelector("#fortuneUnknownTime"),
+  fortuneSettingsError: document.querySelector("#fortuneSettingsError"),
+  deleteFortuneProfileBtn: document.querySelector("#deleteFortuneProfileBtn"),
 };
 
 init();
@@ -85,6 +101,13 @@ function wireEvents() {
   els.openQuickModalBtn.addEventListener("click", openQuickModal);
   els.calendarToggleBtn.addEventListener("click", toggleCalendarPanel);
   els.monthReportBtn.addEventListener("click", copyMonthReport);
+  els.openFortuneSettingsBtn.addEventListener("click", openFortuneSettings);
+  els.fortuneSettingsForm.addEventListener("submit", saveFortuneSettings);
+  els.fortuneSettingsModal.addEventListener("click", closeFortuneSettingsFromBackdrop);
+  els.fortuneSettingsModal.addEventListener("cancel", closeFortuneSettings);
+  els.closeFortuneSettingsBtn.addEventListener("click", closeFortuneSettings);
+  els.deleteFortuneProfileBtn.addEventListener("click", deleteFortuneProfile);
+  els.fortuneUnknownTime.addEventListener("change", updateFortuneTimeState);
   els.recordForm.addEventListener("submit", saveModal);
   els.recordModal.addEventListener("click", confirmBackdropClose);
   els.recordModal.addEventListener("cancel", confirmDialogCancel);
@@ -113,6 +136,61 @@ function renderHeader() {
   els.selectedDateLabel.textContent = `${selected.toLocaleString("en", { month: "long" }).toUpperCase()} ${selected.getDate()}, ${selected.getFullYear()}`;
   els.goTodayBtn.disabled = isToday;
   els.goTodayBtn.setAttribute("aria-current", isToday ? "date" : "false");
+  renderFortuneSummary();
+}
+
+function renderFortuneSummary() {
+  if (!state.fortuneProfile) {
+    els.fortuneSummary.classList.add("hidden");
+    els.fortuneSummary.textContent = "";
+    return;
+  }
+
+  try {
+    const fortune = computeDailyFortune(normalizedFortuneProfile(state.fortuneProfile), state.selectedDate);
+    renderFortuneSummaryContent(fortune);
+    els.fortuneSummary.classList.remove("hidden");
+  } catch {
+    els.fortuneSummary.classList.add("hidden");
+    els.fortuneSummary.textContent = "";
+  }
+}
+
+function renderFortuneSummaryContent(fortune) {
+  els.fortuneSummary.replaceChildren();
+
+  const title = document.createElement("span");
+  title.className = "fortune-summary-title";
+  title.textContent = fortune.title;
+
+  const headline = document.createElement("strong");
+  headline.className = "fortune-summary-headline";
+  headline.textContent = fortune.headline;
+
+  const body = document.createElement("span");
+  body.className = "fortune-summary-body";
+  body.textContent = fortune.body;
+
+  const details = document.createElement("span");
+  details.className = "fortune-summary-details";
+
+  for (const item of fortune.details || []) {
+    const row = document.createElement("span");
+    row.className = "fortune-summary-detail";
+
+    const label = document.createElement("span");
+    label.className = "fortune-summary-detail-label";
+    label.textContent = item.label;
+
+    const text = document.createElement("span");
+    text.className = "fortune-summary-detail-text";
+    text.textContent = item.text;
+
+    row.append(label, text);
+    details.append(row);
+  }
+
+  els.fortuneSummary.append(title, headline, body, details);
 }
 
 function renderWeekStrip() {
@@ -143,9 +221,9 @@ function renderTimer() {
   els.startTimerBtn.classList.toggle("hidden", Boolean(active));
   els.stopTimerBtn.classList.toggle("hidden", !active);
   els.startTimerBtn.disabled = !isToday || Boolean(active);
-  els.stopTimerBtn.disabled = !isToday || !active;
-  els.timerDisplay.classList.toggle("disabled", !isToday);
-  els.timerStatus.classList.toggle("hidden", !isToday);
+  els.stopTimerBtn.disabled = !active;
+  els.timerDisplay.classList.toggle("disabled", !isToday && !active);
+  els.timerStatus.classList.toggle("hidden", !isToday && !active);
 
   if (!active) {
     els.timerDisplay.textContent = "00:00:00";
@@ -171,38 +249,80 @@ function renderSummaries() {
 }
 
 function renderTasks() {
-  const daySessions = sessionsForDate(state.selectedDate);
-  const dayGroups = groupsForDate(state.selectedDate);
-  const groupedIds = new Set(dayGroups.flatMap((group) => group.sessionIds));
-  const ungrouped = daySessions.filter((session) => !groupedIds.has(session.id));
+  const visibleItems = visibleTimelineItemsForDate(state.selectedDate);
   const activeItem = activeSessionForSelectedDate();
   const timelineItems = [];
 
   els.taskList.innerHTML = "";
-  els.emptyMessage.classList.toggle("hidden", Boolean(daySessions.length || activeItem));
+  els.emptyMessage.classList.toggle("hidden", Boolean(visibleItems.length || activeItem));
 
   if (activeItem) {
-    timelineItems.push({ type: "session", session: activeItem, active: true, sortValue: Number.MAX_SAFE_INTEGER });
+    timelineItems.push({
+      type: "session",
+      session: activeItem,
+      active: true,
+      sortValue: Number.MAX_SAFE_INTEGER,
+      crossDay: activeItem.crossDay,
+      accentAlpha: activeItem.accentAlpha,
+    });
   }
 
-  for (const group of dayGroups) {
-    const groupSessions = group.sessionIds.map((id) => sessionById(id)).filter(Boolean);
-    if (groupSessions.length) {
-      timelineItems.push({ type: "group", group, sessions: groupSessions, sortValue: groupSortValue(group, groupSessions) });
+  for (const item of visibleItems) {
+    if (item.type === "group") {
+      const group = groupById(item.id);
+      const sessions = group?.sessionIds.map((id) => sessionById(id)).filter(Boolean) || [];
+      if (group && sessions.length) {
+        timelineItems.push({
+          ...item,
+          group,
+          sessions,
+          active: false,
+          crossDay: item.isCrossDay,
+          sameDay: isSameDayItem(item),
+          accentAlpha: item.accentAlpha,
+          includedMinutes: item.includedMinutes,
+          totalMinutes: item.duration,
+        });
+      }
+    } else {
+      const session = sessionById(item.id);
+      if (session) {
+        timelineItems.push({
+          ...item,
+          session,
+          active: false,
+          crossDay: item.isCrossDay,
+          sameDay: isSameDayItem(item),
+          accentAlpha: item.accentAlpha,
+          includedMinutes: item.includedMinutes,
+          totalMinutes: item.duration,
+        });
+      }
     }
-  }
-
-  for (const session of ungrouped) {
-    timelineItems.push({ type: "session", session, active: false, sortValue: taskSortValue(session) });
   }
 
   timelineItems.sort((a, b) => b.sortValue - a.sortValue);
 
   for (const item of timelineItems) {
     if (item.type === "group") {
-      els.taskList.append(renderGroupCard(item.group, item.sessions));
+      els.taskList.append(renderGroupCard(item.group, item.sessions, {
+        crossDay: item.crossDay,
+        sameDay: item.sameDay,
+        accentAlpha: item.accentAlpha,
+        includedMinutes: item.includedMinutes,
+        totalMinutes: item.totalMinutes,
+        displayDate: state.selectedDate,
+      }));
     } else {
-      els.taskList.append(renderTaskCard(item.session, { active: item.active }));
+      els.taskList.append(renderTaskCard(item.session, {
+        active: item.active,
+        crossDay: item.crossDay,
+        sameDay: item.sameDay,
+        accentAlpha: item.accentAlpha,
+        includedMinutes: item.includedMinutes,
+        totalMinutes: item.totalMinutes,
+        displayDate: state.selectedDate,
+      }));
     }
   }
 
@@ -215,7 +335,10 @@ function renderTaskCard(session, options) {
   card.className = classNames("task-card", {
     selected,
     active: options.active,
+    "cross-day": options.crossDay,
+    "same-day": options.sameDay,
   });
+  applyTaskAccent(card, options);
 
   card.innerHTML = `
     <button class="task-check" type="button" aria-label="Select task">${selected ? "✓" : ""}</button>
@@ -224,9 +347,9 @@ function renderTaskCard(session, options) {
           <button class="card-icon" type="button" aria-label="Edit task">✎</button>
           <strong>${escapeHtml(taskTitleText(session.title))}</strong>
         </div>
-        ${taskMemoHtml(session)}
         ${tagChipsHtml(session.tags || [])}
-      <small>${escapeHtml(activityMeta(session))}</small>
+        ${taskMemoHtml(session)}
+        ${taskMetaHtml(sessionMeta(session, options))}
     </div>
   `;
 
@@ -242,12 +365,15 @@ function renderTaskCard(session, options) {
   return card;
 }
 
-function renderGroupCard(group, sessions) {
+function renderGroupCard(group, sessions, options = {}) {
   const card = document.createElement("article");
   const selected = state.selectedIds.has(group.id);
   card.className = classNames("task-card merged-task", {
     selected,
+    "cross-day": options.crossDay,
+    "same-day": options.sameDay,
   });
+  applyTaskAccent(card, options);
   const start = groupStartMinutes(group, sessions);
   const end = groupEndMinutes(group, sessions);
   const minutes = groupDurationMinutes(group, sessions);
@@ -259,15 +385,21 @@ function renderGroupCard(group, sessions) {
           <button class="card-icon" type="button" aria-label="Edit task">✎</button>
           <strong>${escapeHtml(mergedTaskTitle(group, sessions))}</strong>
         </div>
-        <p>${escapeHtml(mergedTaskMemo(group, sessions))}</p>
         ${tagChipsHtml(group.tags || [])}
-      <small>${escapeHtml(groupFooterMeta(start, end, minutes))}</small>
+        <p>${escapeHtml(mergedTaskMemo(group, sessions))}</p>
+        ${taskMetaHtml(taskMetaParts(start, end, minutes, options))}
     </div>
   `;
 
   card.querySelector(".task-check").addEventListener("click", () => toggleGroupSelection(group.id));
   card.querySelector(".card-icon").addEventListener("click", () => openExistingGroupModal(group.id));
   return card;
+}
+
+function applyTaskAccent(card, options = {}) {
+  if (!options.crossDay) return;
+  if (!Number.isFinite(options.accentAlpha)) return;
+  card.style.setProperty("--task-accent-alpha", String(options.accentAlpha));
 }
 
 function renderMonth() {
@@ -395,11 +527,11 @@ function buildMonthReport() {
 }
 
 function reportItemsForDate(dateKey) {
-  return timelineItemsForDate(dateKey)
+  return visibleTimelineItemsForDate(dateKey)
     .map((item) => ({
       ...reportItemDetails(item),
       minutes: item.duration,
-      range: formatTimeRangeFromMinutes(item.startMinute, item.endMinute),
+      range: formatTimeRangeFromMinutes(item.startMinute, item.endMinute, item.ownerDate, dateKey),
       sortValue: item.sortValue,
     }))
     .sort((a, b) => b.sortValue - a.sortValue);
@@ -455,9 +587,90 @@ async function writeClipboardText(text) {
   if (!copied) throw clipboardError || new Error("Clipboard copy was not available.");
 }
 
+function openFortuneSettings() {
+  const profile = normalizedFortuneProfile(state.fortuneProfile || {});
+  els.fortuneBirthDate.value = profile.birthDate || "";
+  els.fortuneBirthTime.value = profile.birthTime || "12:00";
+  els.fortuneGender.value = profile.gender || "M";
+  els.fortuneLanguage.value = profile.language;
+  els.fortuneUnknownTime.checked = Boolean(profile.unknownTime);
+  els.fortuneSettingsError.textContent = "";
+  els.deleteFortuneProfileBtn.classList.toggle("hidden", !state.fortuneProfile);
+  updateFortuneTimeState();
+  els.fortuneSettingsModal.showModal();
+}
+
+function saveFortuneSettings(event) {
+  event.preventDefault();
+  const profile = {
+    birthDate: els.fortuneBirthDate.value,
+    birthTime: els.fortuneBirthTime.value || "12:00",
+    gender: els.fortuneGender.value === "F" ? "F" : "M",
+    language: els.fortuneLanguage.value === "ko" ? "ko" : "en",
+    unknownTime: els.fortuneUnknownTime.checked,
+  };
+
+  const error = validateFortuneProfile(profile);
+  if (error) {
+    els.fortuneSettingsError.textContent = error;
+    return;
+  }
+
+  state.fortuneProfile = profile;
+  closeFortuneSettings();
+  render();
+}
+
+function deleteFortuneProfile() {
+  state.fortuneProfile = null;
+  closeFortuneSettings();
+  render();
+}
+
+function closeFortuneSettings() {
+  els.fortuneSettingsModal.close();
+}
+
+function closeFortuneSettingsFromBackdrop(event) {
+  if (event.target === els.fortuneSettingsModal) closeFortuneSettings();
+}
+
+function updateFortuneTimeState() {
+  els.fortuneBirthTime.disabled = els.fortuneUnknownTime.checked;
+}
+
+function validateFortuneProfile(profile) {
+  if (!profile.birthDate) return "Enter your birth date.";
+  const [year, month, day] = profile.birthDate.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return "Enter a valid birth date.";
+  if (!profile.unknownTime && !isValidTimeValue(normalizeTimeValue(profile.birthTime))) return "Enter a valid birth time.";
+  return "";
+}
+
+function normalizedFortuneProfile(profile) {
+  if (!profile) return null;
+  return {
+    ...profile,
+    language: profile.language === "ko" || profile.language === "en" ? profile.language : defaultFortuneLanguage(),
+  };
+}
+
+function defaultFortuneLanguage() {
+  return navigator.language?.toLowerCase().startsWith("ko") ? "ko" : "en";
+}
+
 function toggleCalendarPanel() {
   const nextOpen = !state.isCalendarOpen;
   if (state.calendarAnimating) return;
+  const didSyncWeek = !nextOpen && ensureWeekSelectionForMonth();
+
+  if (didSyncWeek) {
+    renderHeader();
+    renderWeekStrip();
+    renderTasks();
+    renderMonth();
+  }
 
   if (canAnimateCalendarTransition()) {
     animateCalendarTransition(nextOpen);
@@ -467,6 +680,29 @@ function toggleCalendarPanel() {
   state.isCalendarOpen = nextOpen;
   renderSummaries();
   renderCalendarPanel();
+}
+
+function ensureWeekSelectionForMonth() {
+  if (isSelectedDateInCalendarMonth(state.selectedDate, state.monthCursor)) return false;
+
+  const fallbackDate = fallbackWeekDateForMonth(state.monthCursor);
+  state.selectedDate = toDateKey(fallbackDate);
+  state.weekStart = startOfWeek(fallbackDate);
+  clearSelection(false);
+  return true;
+}
+
+function isSelectedDateInCalendarMonth(dateKey, monthCursor) {
+  const selected = parseDateKey(dateKey);
+  return selected.getFullYear() === monthCursor.getFullYear() && selected.getMonth() === monthCursor.getMonth();
+}
+
+function fallbackWeekDateForMonth(monthCursor) {
+  const today = new Date();
+  if (today.getFullYear() === monthCursor.getFullYear() && today.getMonth() === monthCursor.getMonth()) {
+    return today;
+  }
+  return new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
 }
 
 function canAnimateCalendarTransition() {
@@ -535,7 +771,6 @@ function startTimer() {
 
 function stopTimer() {
   if (!state.active) return;
-  if (!isSelectedDateToday()) return;
   const active = state.active;
 
   if (!active.date || !active.start || !active.startedAt) {
@@ -903,7 +1138,7 @@ function removeModalTag(tag) {
 
 function toggleSessionSelection(id) {
   const session = sessionById(id);
-  if (!session || session.date !== state.selectedDate) return;
+  if (!session || !isSessionVisibleOnDate(session, state.selectedDate)) return;
 
   if (state.selectedIds.has(id)) state.selectedIds.delete(id);
   else state.selectedIds.add(id);
@@ -912,7 +1147,7 @@ function toggleSessionSelection(id) {
 
 function toggleGroupSelection(id) {
   const group = groupById(id);
-  if (!group || group.date !== state.selectedDate) return;
+  if (!group || !isGroupVisibleOnDate(group, state.selectedDate)) return;
 
   if (state.selectedIds.has(id)) state.selectedIds.delete(id);
   else state.selectedIds.add(id);
@@ -941,14 +1176,14 @@ function deleteSelectedItems() {
 
   for (const id of selected) {
     const group = groupById(id);
-    if (group && group.date === state.selectedDate) {
+    if (group && isGroupVisibleOnDate(group, state.selectedDate)) {
       groupIdsToDelete.add(group.id);
       for (const sessionId of group.sessionIds) sessionIdsToDelete.add(sessionId);
       continue;
     }
 
     const session = sessionById(id);
-    if (session && session.date === state.selectedDate) sessionIdsToDelete.add(session.id);
+    if (session && isSessionVisibleOnDate(session, state.selectedDate)) sessionIdsToDelete.add(session.id);
   }
 
   state.sessions = state.sessions.filter((session) => !sessionIdsToDelete.has(session.id));
@@ -968,11 +1203,12 @@ function connectedSelectedItems() {
   const selected = new Set(state.selectedIds);
   if (selected.size < 2) return [];
 
-  const positions = timelineItemsForDate(state.selectedDate)
+  const positions = visibleTimelineItemsForDate(state.selectedDate)
     .map((item, index) => ({ ...item, index }))
     .filter((item) => selected.has(item.id));
 
   if (positions.length < 2) return [];
+  if (positions.some((item) => item.isContinuation)) return [];
 
   const first = positions[0].index;
   const last = positions[positions.length - 1].index;
@@ -1061,7 +1297,7 @@ function visibleIntervalsForDate(dateKey) {
       type: "active",
       id: "active",
       start: activeOffset + timeToMinutes(state.active.start),
-      end: activeOffset + absoluteEndMinutes(state.active.start, toTimeValue(new Date())),
+      end: activeOffset + activeEndMinute(),
       label: "Active task",
     });
   }
@@ -1070,7 +1306,13 @@ function visibleIntervalsForDate(dateKey) {
 }
 
 function activeSessionForSelectedDate() {
-  if (!state.active || state.active.date !== state.selectedDate) return null;
+  if (!state.active || !isActiveTimerVisibleOnDate(state.selectedDate)) return null;
+  const endMinute = activeEndMinute();
+  const startMinute = timeToMinutes(state.active.start);
+  const offset = dateOffsetMinutes(state.active.date, state.selectedDate);
+  const includedMinutes = overlapMinutes(offset + startMinute, offset + endMinute, 0, 1440);
+  const totalMinutes = Math.max(0, endMinute - startMinute);
+  const crossDay = state.active.date !== state.selectedDate || endMinute > 1440;
   return {
     id: "active",
     date: state.active.date,
@@ -1080,6 +1322,10 @@ function activeSessionForSelectedDate() {
     tags: [],
     memo: "Timer is running.",
     isActive: true,
+    crossDay,
+    accentAlpha: crossDay ? taskAccentAlpha(includedMinutes, totalMinutes) : 1,
+    includedMinutes,
+    totalMinutes,
   };
 }
 
@@ -1093,6 +1339,8 @@ function cleanupGroups() {
 function persist() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.sessions));
   localStorage.setItem(GROUPS_KEY, JSON.stringify(state.groups));
+  if (state.fortuneProfile) localStorage.setItem(FORTUNE_PROFILE_KEY, JSON.stringify(state.fortuneProfile));
+  else localStorage.removeItem(FORTUNE_PROFILE_KEY);
   if (state.active) localStorage.setItem(ACTIVE_KEY, JSON.stringify(state.active));
   else localStorage.removeItem(ACTIVE_KEY);
 }
@@ -1145,13 +1393,7 @@ function totalMinutesForDates(dateKeys) {
 }
 
 function hasRecordsForDate(dateKey) {
-  if (timelineItemsForDate(dateKey).length) return true;
-
-  const targetDate = parseDateKey(dateKey);
-  const previousDate = addDays(targetDate, -1);
-  return timelineItemsForDate(toDateKey(previousDate)).some((item) => {
-    return overlapMinutes(item.startMinute - 1440, item.endMinute - 1440, 0, 1440) > 0;
-  });
+  return visibleTimelineItemsForDate(dateKey).length > 0;
 }
 
 function durationMinutes(session) {
@@ -1259,14 +1501,115 @@ function timelineItemsForDate(dateKey) {
   return items.sort((a, b) => b.sortValue - a.sortValue);
 }
 
-function activityMeta(session) {
-  const range = session.isActive ? currentTimeText(session.start) : formatTimeRange(session.start, session.end);
-  if (session.isActive) return `Recording (${range})`;
-  return `${formatDuration(durationMinutes(session))} (${range})`;
+function visibleTimelineItemsForDate(dateKey) {
+  const targetDate = parseDateKey(dateKey);
+  const ownerDates = [addDays(targetDate, -1), targetDate].map(toDateKey);
+  const items = ownerDates.flatMap((ownerDate) =>
+    timelineItemsForDate(ownerDate)
+      .filter((item) => itemOverlapsDate(item, ownerDate, dateKey))
+      .map((item) => {
+        const offset = dateOffsetMinutes(ownerDate, dateKey);
+        const displayEndMinute = clamp(offset + item.endMinute, 0, 1440);
+        const includedMinutes = overlapMinutes(offset + item.startMinute, offset + item.endMinute, 0, 1440);
+        const isContinuation = ownerDate !== dateKey;
+        const isCrossDay = includedMinutes < item.duration;
+        return {
+          ...item,
+          ownerDate,
+          displayDate: dateKey,
+          isCrossDay,
+          isContinuation,
+          includedMinutes,
+          accentAlpha: isCrossDay ? taskAccentAlpha(includedMinutes, item.duration) : 1,
+          sortValue: displayEndMinute * 60000,
+        };
+      }),
+  );
+  return items.sort((a, b) => b.sortValue - a.sortValue);
 }
 
-function groupFooterMeta(start, end, minutes) {
-  return `${formatDuration(minutes)} (${formatTimeRangeFromMinutes(start, end)})`;
+function taskAccentAlpha(includedMinutes, totalMinutes) {
+  if (!Number.isFinite(includedMinutes) || !Number.isFinite(totalMinutes) || totalMinutes <= 0) return 1;
+  return Number(clamp(includedMinutes / totalMinutes, 0, 1).toFixed(2));
+}
+
+function itemOverlapsDate(item, ownerDate, dateKey) {
+  const offset = dateOffsetMinutes(ownerDate, dateKey);
+  return overlapMinutes(offset + item.startMinute, offset + item.endMinute, 0, 1440) > 0;
+}
+
+function isSameDayItem(item) {
+  return Boolean(!item?.isCrossDay && item?.endMinute <= 1440);
+}
+
+function isSessionVisibleOnDate(session, dateKey) {
+  if (!session?.date || !session.start || !session.end) return false;
+  return itemOverlapsDate(
+    {
+      startMinute: timeToMinutes(session.start),
+      endMinute: absoluteEndMinutes(session.start, session.end),
+    },
+    session.date,
+    dateKey,
+  );
+}
+
+function isGroupVisibleOnDate(group, dateKey) {
+  if (!group?.date) return false;
+  const sessions = group.sessionIds.map((id) => sessionById(id)).filter(Boolean);
+  if (!sessions.length) return false;
+  return itemOverlapsDate(
+    {
+      startMinute: groupStartMinutes(group, sessions),
+      endMinute: groupEndMinutes(group, sessions),
+    },
+    group.date,
+    dateKey,
+  );
+}
+
+function isActiveTimerVisibleOnDate(dateKey) {
+  if (!state.active?.date || !state.active.start || !state.active.startedAt) return false;
+  const startMinute = timeToMinutes(state.active.start);
+  const endMinute = activeEndMinute();
+  if (Number.isNaN(startMinute) || Number.isNaN(endMinute)) return false;
+  return itemOverlapsDate({ startMinute, endMinute }, state.active.date, dateKey);
+}
+
+function sessionMeta(session, options = {}) {
+  if (session.isActive) {
+    return [
+      { className: "task-meta-status", text: "Recording" },
+      { className: "task-meta-range", text: currentTimeText(session.start) },
+    ];
+  }
+
+  return taskMetaParts(timeToMinutes(session.start), absoluteEndMinutes(session.start, session.end), durationMinutes(session), options);
+}
+
+function taskMetaParts(startMinute, endMinute, minutes, options = {}) {
+  const displayMinutes = options.crossDay && Number.isFinite(options.includedMinutes) ? options.includedMinutes : minutes;
+  const totalMinutes = Number.isFinite(options.totalMinutes) ? options.totalMinutes : minutes;
+  const parts = [
+    { className: "task-meta-range", text: `${minutesToTime(startMinute)} → ${minutesToTime(endMinute)}` },
+    { className: "task-meta-duration", text: formatDuration(displayMinutes) },
+  ];
+
+  if (endMinute > 1440) {
+    parts.splice(1, 0, { className: "task-meta-offset", text: `+${Math.floor(endMinute / 1440)}d` });
+  }
+
+  if (options.crossDay) {
+    parts.push({ className: "task-meta-total", text: `${formatDuration(totalMinutes)} total` });
+  }
+
+  return parts;
+}
+
+function taskMetaHtml(parts) {
+  return `<div class="task-meta">${parts
+    .map((part) => `<span class="${part.className}">${escapeHtml(part.text)}</span>`)
+    .join("")}</div>`;
 }
 
 function taskMemoHtml(session) {
@@ -1282,13 +1625,13 @@ function tagChipsHtml(tags) {
 }
 
 function dotTextForDate(dateKey) {
-  const count = sessionsForDate(dateKey).length;
+  const count = visibleTimelineItemsForDate(dateKey).length;
   if (!count) return "";
   return "•".repeat(Math.min(count, 3));
 }
 
-function currentTimeText(start) {
-  return `${start}~`;
+function currentTimeText(start, ownerDate, displayDate = ownerDate) {
+  return `${timeRangeStartPrefix(ownerDate, displayDate)}${start}~`;
 }
 
 function parseTags(value) {
@@ -1310,6 +1653,10 @@ function addDays(date, days) {
   const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   copy.setDate(copy.getDate() + days);
   return copy;
+}
+
+function dateOffsetMinutes(ownerDateKey, targetDateKey) {
+  return Math.round((parseDateKey(ownerDateKey) - parseDateKey(targetDateKey)) / 86400000) * 1440;
 }
 
 function rangeDates(start, end) {
@@ -1337,6 +1684,12 @@ function toTimeValue(date) {
 
 function normalizedStopTime(start, date) {
   return toTimeValue(date);
+}
+
+function activeEndMinute() {
+  if (!state.active?.startedAt) return NaN;
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - state.active.startedAt) / 60000));
+  return timeToMinutes(state.active.start) + elapsedMinutes;
 }
 
 function timeToMinutes(value) {
@@ -1383,13 +1736,24 @@ function overlapMinutes(start, end, windowStart, windowEnd) {
   return Math.max(0, Math.min(end, windowEnd) - Math.max(start, windowStart));
 }
 
-function formatTimeRange(start, end) {
-  return `${start}~${timeToMinutes(end) < timeToMinutes(start) ? "next day " : ""}${end}`;
+function formatTimeRange(start, end, ownerDate, displayDate = ownerDate) {
+  const endMinute = absoluteEndMinutes(start, end);
+  return `${timeRangeStartPrefix(ownerDate, displayDate)}${start}~${timeRangeEndPrefix(endMinute, ownerDate, displayDate)}${minutesToTime(endMinute)}`;
 }
 
-function formatTimeRangeFromMinutes(start, end) {
-  const endText = end === 1440 ? "24:00" : `${end > 1440 ? "next day " : ""}${minutesToTime(end)}`;
-  return `${minutesToTime(start)}~${endText}`;
+function formatTimeRangeFromMinutes(start, end, ownerDate, displayDate = ownerDate) {
+  return `${timeRangeStartPrefix(ownerDate, displayDate)}${minutesToTime(start)}~${timeRangeEndPrefix(end, ownerDate, displayDate)}${minutesToTime(end)}`;
+}
+
+function timeRangeStartPrefix(ownerDate, displayDate) {
+  if (!ownerDate || !displayDate) return "";
+  return parseDateKey(ownerDate) < parseDateKey(displayDate) ? "previous day " : "";
+}
+
+function timeRangeEndPrefix(endMinute, ownerDate, displayDate) {
+  if (!ownerDate || !displayDate) return endMinute > 1440 ? "next day " : "";
+  if (parseDateKey(ownerDate) < parseDateKey(displayDate)) return "";
+  return endMinute > 1440 ? "next day " : "";
 }
 
 function minutesToTime(minutes) {

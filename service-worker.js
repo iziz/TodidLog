@@ -1,9 +1,10 @@
-const CACHE_NAME = "todidlog-v113";
+const CACHE_NAME = "todidlog-v136";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./vendor/fortune-engine.js",
   "./assets/add_list.png",
   "./assets/timer_start.png",
   "./assets/timer_stop.png",
