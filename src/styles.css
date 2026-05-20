@@ -230,23 +230,26 @@ h2 {
 }
 
 .calendar-body {
-  display: grid;
   margin-top: 8px;
   overflow: hidden;
 }
 
-.calendar-body > .week-nav,
-.calendar-body > .month-inline {
+.calendar-view-stack {
+  display: grid;
+}
+
+.calendar-view-stack > .week-nav,
+.calendar-view-stack > .month-inline {
   grid-area: 1 / 1;
 }
 
 .week-nav {
-  display: grid;
+  display: none;
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
   margin: 0;
   overflow: hidden;
-  max-height: 72px;
+  max-height: 56px;
   opacity: 1;
   transform: translateY(0);
   transition:
@@ -264,17 +267,33 @@ h2 {
   font-size: 24px;
 }
 
+.calendar-weekdays,
 .week-strip {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
+}
+
+.calendar-weekdays {
+  gap: 4px;
+  margin: 0 0 8px;
+  color: var(--orange);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+}
+
+.week-strip {
+  gap: 4px;
   margin: 0;
 }
 
 .date-chip {
   display: grid;
+  grid-template-rows: 30px 8px;
+  align-content: center;
   min-width: 0;
-  min-height: 54px;
+  min-height: 52px;
   place-items: center;
   border: 0;
   border-radius: var(--radius);
@@ -283,18 +302,14 @@ h2 {
   box-shadow: none;
 }
 
-.date-chip span {
-  color: #30363b;
-  font-size: 9px;
-  font-weight: 850;
-}
-
 .date-chip strong {
   font-size: 18px;
   line-height: 1;
 }
 
 .date-chip small {
+  display: grid;
+  place-items: center;
   min-height: 8px;
   color: #48bb6b;
   font-size: 10px;
@@ -306,83 +321,12 @@ h2 {
   color: #fff;
 }
 
-.date-chip.active span,
 .date-chip.active small {
   color: #fff;
 }
 
 .date-chip.today:not(.active) {
   box-shadow: inset 0 0 0 2px rgba(255, 159, 28, 0.42);
-}
-
-.calendar-week-ghost {
-  position: fixed;
-  z-index: 20;
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
-  margin: 0;
-  overflow: hidden;
-  pointer-events: none;
-  transform-origin: top left;
-  will-change: transform, opacity;
-}
-
-.calendar-week-ghost .date-chip {
-  min-height: 100%;
-  overflow: hidden;
-}
-
-.calendar-week-ghost span,
-.calendar-week-ghost strong,
-.calendar-week-ghost small {
-  display: inline-grid;
-  place-items: center;
-  transform-origin: center;
-  will-change: transform;
-}
-
-.calendar-week-ghost .date-chip > span {
-  opacity: 0;
-}
-
-.calendar-weekday-ghost {
-  position: fixed;
-  inset: 0 auto auto 0;
-  z-index: 21;
-  pointer-events: none;
-}
-
-.calendar-weekday-ghost-label {
-  position: fixed;
-  display: grid;
-  place-items: center;
-  line-height: 1;
-  text-align: center;
-  white-space: nowrap;
-  will-change: left, top, width, height, font-size, color;
-}
-
-.calendar-morphing .week-nav,
-.calendar-morphing .month-weekdays,
-.calendar-morphing .month-day.week-selected {
-  opacity: 0;
-}
-
-.calendar-opening .month-day:not(.week-selected) {
-  animation: calendar-date-fill 150ms ease-out both;
-}
-
-@keyframes calendar-date-fill {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .timer-card,
@@ -905,46 +849,45 @@ textarea {
 
 .month-inline {
   overflow: hidden;
-  max-height: 420px;
+  height: var(--calendar-week-height, 52px);
+  max-height: none;
   margin: 0;
   opacity: 1;
   transform: translateY(0);
-  transition:
-    max-height 240ms ease,
-    opacity 180ms ease,
-    transform 180ms ease;
+  transition: height 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.calendar-expanded .month-inline {
+  height: var(--calendar-month-height, 200px);
 }
 
 .calendar-view-hidden {
   max-height: 0 !important;
   opacity: 0;
   pointer-events: none;
+  transition: none;
   transform: translateY(-6px);
 }
 
-.month-weekdays,
 .month-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
+  --selected-week-offset: 0px;
+  margin-top: 0;
+  transform: translateY(calc(-1 * var(--selected-week-offset)));
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 
-.month-weekdays {
-  margin-top: 16px;
-  color: var(--orange);
-  font-size: 10px;
-  font-weight: 900;
-  text-align: center;
-}
-
-.month-grid {
-  margin-top: 12px;
+.calendar-expanded .month-grid {
+  transform: translateY(0);
 }
 
 .month-day {
   position: relative;
   display: grid;
-  grid-template-rows: 24px 6px;
+  grid-template-rows: 22px 8px;
   align-content: center;
   min-height: 28px;
   place-items: center;
@@ -953,6 +896,23 @@ textarea {
   background: transparent;
   color: var(--ink);
   text-align: center;
+  transition:
+    grid-template-rows 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    min-height 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 160ms ease,
+    opacity 160ms ease;
+  will-change: min-height, opacity;
+}
+
+.calendar-surface:not(.calendar-expanded) .month-day:not(.week-selected) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.calendar-surface:not(.calendar-expanded) .month-day.week-selected {
+  grid-template-rows: 30px 8px;
+  min-height: 52px;
 }
 
 .month-day.week-selected {
@@ -977,16 +937,37 @@ textarea {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 900;
+  transition:
+    width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    font-size 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.calendar-surface:not(.calendar-expanded) .month-day.week-selected strong {
+  width: auto;
+  height: 30px;
+  font-size: 18px;
 }
 
 .month-day small {
   position: relative;
   z-index: 1;
-  min-height: 6px;
+  display: grid;
+  min-height: 8px;
+  place-items: center;
   color: #48bb6b;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 900;
-  line-height: 0.65;
+  line-height: 1;
+  transform: translateY(-3px);
+  transition:
+    font-size 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.calendar-surface:not(.calendar-expanded) .month-day.week-selected small {
+  font-size: 10px;
+  transform: translateY(0);
 }
 
 .month-day.selected {
@@ -1117,17 +1098,13 @@ textarea {
     gap: 4px;
   }
 
-  .calendar-week-ghost {
+  .calendar-weekdays {
     gap: 4px;
   }
 
   .date-chip {
     min-width: 0;
-    min-height: 52px;
-  }
-
-  .date-chip span {
-    font-size: 8px;
+    min-height: 50px;
   }
 
   .date-chip strong {

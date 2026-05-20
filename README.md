@@ -1,8 +1,8 @@
-# Daily Work Log
+# TodidLog
 
-Timer-based daily work log PWA.
+Timer-based work log PWA.
 
-![Daily Work Log screenshot](assets/readme-screenshot.png)
+![TodidLog screenshot](assets/readme-screenshot.png)
 
 ## Features
 

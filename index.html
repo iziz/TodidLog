@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
-    <title>Daily Work Log</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=93" />
-    <link rel="stylesheet" href="./styles.css?v=93" />
+    <title>TodidLog</title>
+    <link rel="manifest" href="./manifest.webmanifest?v=108" />
+    <link rel="stylesheet" href="./styles.css?v=108" />
   </head>
   <body>
     <main class="app-shell">
@@ -28,14 +28,16 @@
             <button class="calendar-toggle" id="calendarToggleBtn" type="button" aria-expanded="false" aria-controls="monthInline">Month View</button>
           </div>
           <div class="calendar-body" id="calendarBody">
-            <div class="week-nav" id="weekNav">
-              <nav class="week-strip" id="weekStrip" aria-label="Weekly dates"></nav>
+            <div class="calendar-weekdays" id="calendarWeekdays" aria-hidden="true">
+              <span>SUN</span><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span>
             </div>
-            <div class="month-inline calendar-view-hidden" id="monthInline" aria-hidden="true">
-              <div class="month-weekdays">
-                <span>SUN</span><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span>
+            <div class="calendar-view-stack">
+              <div class="week-nav" id="weekNav">
+                <nav class="week-strip" id="weekStrip" aria-label="Weekly dates"></nav>
               </div>
-              <div class="month-grid" id="monthGrid"></div>
+              <div class="month-inline calendar-view-hidden" id="monthInline" aria-hidden="true">
+                <div class="month-grid" id="monthGrid"></div>
+              </div>
             </div>
           </div>
           <div class="calendar-footer">
@@ -121,6 +123,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=93" defer></script>
+    <script src="./app.js?v=108" defer></script>
   </body>
 </html>

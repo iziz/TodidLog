@@ -23,6 +23,7 @@ const els = {
   calendarContextTitle: document.querySelector("#calendarContextTitle"),
   selectedDateLabel: document.querySelector("#selectedDateLabel"),
   goTodayBtn: document.querySelector("#goTodayBtn"),
+  calendarWeekdays: document.querySelector("#calendarWeekdays"),
   weekNav: document.querySelector("#weekNav"),
   weekStrip: document.querySelector("#weekStrip"),
   prevCalendarBtn: document.querySelector("#prevCalendarBtn"),
@@ -126,8 +127,8 @@ function renderWeekStrip() {
       active: dateKey === state.selectedDate,
       today: dateKey === toDateKey(new Date()),
     });
+    button.dataset.date = dateKey;
     button.innerHTML = `
-      <span>${weekdayShort(day)}</span>
       <strong>${day.getDate()}</strong>
       <small>${dotTextForDate(dateKey)}</small>
     `;
@@ -280,7 +281,6 @@ function renderMonth() {
   for (let index = 0; index < 42; index += 1) {
     const day = addDays(gridStart, index);
     const dateKey = toDateKey(day);
-    const hasRecords = hasRecordsForDate(dateKey);
     const button = document.createElement("button");
     button.type = "button";
     button.className = classNames("month-day", {
@@ -291,23 +291,55 @@ function renderMonth() {
       "week-start": dateKey === toDateKey(state.weekStart),
       "week-end": dateKey === toDateKey(addDays(state.weekStart, 6)),
     });
-    button.innerHTML = `<strong>${day.getDate()}</strong><small aria-hidden="true">${hasRecords ? "•" : ""}</small>`;
+    button.dataset.date = dateKey;
+    button.innerHTML = `<strong>${day.getDate()}</strong><small aria-hidden="true">${dotTextForDate(dateKey)}</small>`;
     button.addEventListener("click", () => selectDate(dateKey));
     els.monthGrid.append(button);
   }
 }
 
 function renderCalendarPanel() {
+  if (!state.calendarAnimating) {
+    withCalendarTransitionsDisabled(updateCalendarPanelState);
+    return;
+  }
+
+  updateCalendarPanelState();
+}
+
+function updateCalendarPanelState() {
   els.calendarSurface.classList.toggle("calendar-expanded", state.isCalendarOpen);
-  els.weekNav.classList.toggle("calendar-view-hidden", state.isCalendarOpen);
-  els.weekNav.setAttribute("aria-hidden", String(state.isCalendarOpen));
-  els.monthInline.classList.toggle("calendar-view-hidden", !state.isCalendarOpen);
-  els.monthInline.setAttribute("aria-hidden", String(!state.isCalendarOpen));
+  els.weekNav.classList.add("calendar-view-hidden");
+  els.weekNav.setAttribute("aria-hidden", "true");
+  els.monthInline.classList.remove("calendar-view-hidden");
+  els.monthInline.setAttribute("aria-hidden", "false");
   els.prevCalendarBtn.setAttribute("aria-label", state.isCalendarOpen ? "Previous month" : "Previous week");
   els.nextCalendarBtn.setAttribute("aria-label", state.isCalendarOpen ? "Next month" : "Next week");
   els.calendarToggleBtn.setAttribute("aria-expanded", String(state.isCalendarOpen));
   els.calendarToggleBtn.textContent = state.isCalendarOpen ? "Week View" : "Month View";
   els.monthReportBtn.classList.toggle("hidden", !state.isCalendarOpen);
+  updateCalendarWeekOffset();
+}
+
+function withCalendarTransitionsDisabled(callback) {
+  const elements = [
+    els.calendarBody,
+    els.monthInline,
+    els.monthGrid,
+    ...els.monthGrid.querySelectorAll(".month-day, .month-day strong, .month-day small"),
+  ].filter(Boolean);
+  const previousTransitions = elements.map((element) => element.style.transition);
+
+  elements.forEach((element) => {
+    element.style.transition = "none";
+  });
+  callback();
+  void els.monthGrid.offsetHeight;
+  requestAnimationFrame(() => {
+    elements.forEach((element, index) => {
+      element.style.transition = previousTransitions[index];
+    });
+  });
 }
 
 async function copyMonthReport() {
@@ -427,122 +459,37 @@ function toggleCalendarPanel() {
   const nextOpen = !state.isCalendarOpen;
   if (state.calendarAnimating) return;
 
-  if (canAnimateCalendarMorph()) {
-    animateCalendarMorph(nextOpen);
+  if (canAnimateCalendarTransition()) {
+    animateCalendarTransition(nextOpen);
     return;
   }
 
   state.isCalendarOpen = nextOpen;
-  render();
+  renderSummaries();
+  renderCalendarPanel();
 }
 
-function canAnimateCalendarMorph() {
-  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  return Boolean(
-    !reducedMotion &&
-      els.weekStrip &&
-      els.monthGrid &&
-      els.calendarSurface &&
-      typeof els.weekStrip.animate === "function",
-  );
+function canAnimateCalendarTransition() {
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  return Boolean(!reducedMotion && els.monthGrid && els.calendarSurface && els.calendarBody);
 }
 
-function animateCalendarMorph(nextOpen) {
-  const sourceRect = nextOpen ? els.weekStrip.getBoundingClientRect() : selectedMonthWeekRect();
-  const sourceBodyHeight = els.calendarBody.getBoundingClientRect().height;
-  if (!isUsableRect(sourceRect)) {
-    state.isCalendarOpen = nextOpen;
-    render();
-    return;
-  }
-
+function animateCalendarTransition(nextOpen) {
+  const timing = calendarTransitionTiming();
   state.calendarAnimating = true;
-  els.calendarBody.style.height = `${sourceBodyHeight}px`;
-  const ghost = buildCalendarWeekGhost(sourceRect);
-  const weekdayGhost = buildCalendarWeekdayGhost(nextOpen ? weekWeekdayMetrics() : monthWeekdayMetrics());
-  els.calendarSurface.classList.add("calendar-morphing", nextOpen ? "calendar-opening" : "calendar-closing");
   state.isCalendarOpen = nextOpen;
-  render();
+  renderSummaries();
+  renderCalendarPanel();
 
-  requestAnimationFrame(() => {
-    const targetRect = nextOpen ? selectedMonthWeekRect() : els.weekStrip.getBoundingClientRect();
-    const targetBodyHeight = calendarBodyTargetHeight(nextOpen);
-    if (!isUsableRect(targetRect)) {
-      cleanupCalendarMorph(ghost, weekdayGhost);
-      return;
-    }
-
-    const deltaX = targetRect.left - sourceRect.left;
-    const deltaY = targetRect.top - sourceRect.top;
-    const scaleX = targetRect.width / sourceRect.width;
-    const scaleY = targetRect.height / sourceRect.height;
-    const duration = nextOpen ? 300 : 280;
-    const ghostTiming = {
-      duration,
-      easing: "cubic-bezier(0.4, 0, 0.2, 1)",
-      fill: "forwards",
-    };
-    const bodyTiming = {
-      duration,
-      easing: "cubic-bezier(0.4, 0, 0.2, 1)",
-    };
-    const ghostAnimation = ghost.animate(
-      [
-        { opacity: 1, transform: "translate3d(0, 0, 0) scale(1, 1)" },
-        { opacity: 1, transform: `translate3d(${deltaX}px, ${deltaY}px, 0) scale(${scaleX}, ${scaleY})` },
-      ],
-      ghostTiming,
-    );
-    animateCalendarGhostContent(ghost, scaleX, scaleY, ghostTiming, nextOpen);
-    const weekdayAnimations = animateCalendarWeekdayGhost(weekdayGhost, nextOpen ? monthWeekdayMetrics() : weekWeekdayMetrics(), ghostTiming);
-    const bodyAnimation = els.calendarBody.animate(
-      [
-        { height: `${sourceBodyHeight}px` },
-        { height: `${targetBodyHeight}px` },
-      ],
-      bodyTiming,
-    );
-
-    Promise.allSettled([ghostAnimation.finished, bodyAnimation.finished, ...weekdayAnimations.map((animation) => animation.finished)]).then(() =>
-      finishCalendarMorph(ghost, weekdayGhost, bodyAnimation),
-    );
-  });
+  window.setTimeout(() => {
+    state.calendarAnimating = false;
+  }, timing.duration);
 }
 
-function animateCalendarGhostContent(ghost, scaleX, scaleY, timing, nextOpen) {
-  if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || !scaleX || !scaleY) return;
-  const ratios = calendarTextScaleRatios();
-  const tracks = [
-    { selector: "strong", source: nextOpen ? 1 : ratios.monthDate, target: nextOpen ? ratios.monthDate : 1 },
-    { selector: "small", source: nextOpen ? 1 : ratios.monthDot, target: nextOpen ? ratios.monthDot : 1 },
-  ];
-
-  for (const track of tracks) {
-    ghost.querySelectorAll(track.selector).forEach((element) => {
-      animateCalendarTextScale(element, track.source, track.target, scaleX, scaleY, timing);
-    });
-  }
-}
-
-function animateCalendarTextScale(element, sourceScale, targetScale, parentScaleX, parentScaleY, timing) {
-  element.animate(
-    [
-      { transform: `scale(${sourceScale}, ${sourceScale})` },
-      { transform: `scale(${targetScale / parentScaleX}, ${targetScale / parentScaleY})` },
-    ],
-    timing,
-  );
-}
-
-function calendarTextScaleRatios() {
-  const weekDate = cssNumber(els.weekStrip.querySelector(".date-chip strong"), "fontSize", 18);
-  const monthDate = cssNumber(els.monthGrid.querySelector(".month-day strong"), "fontSize", 11);
-  const weekDot = cssNumber(els.weekStrip.querySelector(".date-chip small"), "fontSize", 10);
-  const monthDot = cssNumber(els.monthGrid.querySelector(".month-day small"), "fontSize", 10);
-
+function calendarTransitionTiming() {
   return {
-    monthDate: monthDate / weekDate,
-    monthDot: monthDot / weekDot,
+    duration: 220,
+    easing: "cubic-bezier(0.22, 1, 0.36, 1)",
   };
 }
 
@@ -552,140 +499,19 @@ function cssNumber(element, property, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-function calendarBodyTargetHeight(isOpen) {
-  if (isOpen) return els.monthInline.scrollHeight;
-  return els.weekNav.scrollHeight || els.weekStrip.getBoundingClientRect().height;
-}
+function updateCalendarWeekOffset() {
+  const firstWeekDay = els.monthGrid.querySelector(".month-day.week-selected");
+  if (!firstWeekDay) return;
+  const days = Array.from(els.monthGrid.children);
+  const rowIndex = Math.floor(days.indexOf(firstWeekDay) / 7);
+  const referenceDay = els.monthGrid.querySelector(".month-day:not(.week-selected)") || firstWeekDay;
+  const rowHeight = referenceDay.getBoundingClientRect().height || 30;
+  const rowGap = cssNumber(els.monthGrid, "rowGap", 4);
+  const rowCount = Math.ceil(days.length / 7);
+  const monthHeight = rowCount * rowHeight + Math.max(0, rowCount - 1) * rowGap;
 
-function buildCalendarWeekGhost(rect) {
-  const ghost = els.weekStrip.cloneNode(true);
-  ghost.removeAttribute("id");
-  ghost.setAttribute("aria-hidden", "true");
-  ghost.classList.add("calendar-week-ghost");
-  ghost.querySelectorAll("button").forEach((button) => {
-    button.disabled = true;
-    button.tabIndex = -1;
-  });
-  Object.assign(ghost.style, {
-    left: `${rect.left}px`,
-    top: `${rect.top}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
-  });
-  document.body.append(ghost);
-  return ghost;
-}
-
-function buildCalendarWeekdayGhost(metrics) {
-  const ghost = document.createElement("div");
-  ghost.className = "calendar-weekday-ghost";
-  ghost.setAttribute("aria-hidden", "true");
-
-  for (const metric of metrics) {
-    const label = document.createElement("span");
-    label.className = "calendar-weekday-ghost-label";
-    label.textContent = metric.text;
-    label._sourceMetric = metric;
-    Object.assign(label.style, metricStyle(metric));
-    ghost.append(label);
-  }
-
-  document.body.append(ghost);
-  return ghost;
-}
-
-function animateCalendarWeekdayGhost(ghost, targets, timing) {
-  return Array.from(ghost.querySelectorAll(".calendar-weekday-ghost-label")).flatMap((label, index) => {
-    const target = targets[index];
-    if (!target) return [];
-    return [
-      label.animate(
-        [
-          metricStyle(label._sourceMetric || targets[index]),
-          metricStyle(target),
-        ],
-        timing,
-      ),
-    ];
-  });
-}
-
-function weekWeekdayMetrics() {
-  return Array.from(els.weekStrip.querySelectorAll(".date-chip span")).map(labelMetric);
-}
-
-function monthWeekdayMetrics() {
-  return Array.from(document.querySelectorAll(".month-weekdays span")).map(labelMetric);
-}
-
-function labelMetric(element) {
-  const rect = element.getBoundingClientRect();
-  const style = getComputedStyle(element);
-  return {
-    text: element.textContent,
-    left: rect.left,
-    top: rect.top,
-    width: rect.width,
-    height: rect.height,
-    color: style.color,
-    fontSize: style.fontSize,
-    fontWeight: style.fontWeight,
-  };
-}
-
-function metricStyle(metric) {
-  return {
-    left: `${metric.left}px`,
-    top: `${metric.top}px`,
-    width: `${metric.width}px`,
-    height: `${metric.height}px`,
-    color: metric.color,
-    fontSize: metric.fontSize,
-    fontWeight: metric.fontWeight,
-  };
-}
-
-function cleanupCalendarMorph(ghost, weekdayGhost = null) {
-  ghost.remove();
-  weekdayGhost?.remove();
-  els.calendarSurface.classList.remove("calendar-morphing", "calendar-opening", "calendar-closing");
-  els.calendarBody.getAnimations().forEach((animation) => animation.cancel());
-  els.calendarBody.style.height = "";
-  state.calendarAnimating = false;
-}
-
-function finishCalendarMorph(ghost, weekdayGhost, bodyAnimation) {
-  bodyAnimation.cancel();
-  els.calendarSurface.classList.remove("calendar-morphing", "calendar-opening", "calendar-closing");
-  els.calendarBody.style.height = "";
-  const fadeTiming = {
-    duration: 60,
-    easing: "ease-out",
-    fill: "forwards",
-  };
-  const fade = ghost.animate([{ opacity: 1 }, { opacity: 0 }], fadeTiming);
-  const weekdayFade = weekdayGhost.animate([{ opacity: 1 }, { opacity: 0 }], fadeTiming);
-  Promise.allSettled([fade.finished, weekdayFade.finished]).finally(() => {
-    ghost.remove();
-    weekdayGhost.remove();
-    state.calendarAnimating = false;
-  });
-}
-
-function selectedMonthWeekRect() {
-  const days = Array.from(els.monthGrid.querySelectorAll(".month-day.week-selected"));
-  if (!days.length) return null;
-  const rects = days.map((day) => day.getBoundingClientRect()).filter(isUsableRect);
-  if (!rects.length) return null;
-  const left = Math.min(...rects.map((rect) => rect.left));
-  const top = Math.min(...rects.map((rect) => rect.top));
-  const right = Math.max(...rects.map((rect) => rect.right));
-  const bottom = Math.max(...rects.map((rect) => rect.bottom));
-  return { left, top, width: right - left, height: bottom - top };
-}
-
-function isUsableRect(rect) {
-  return Boolean(rect && rect.width > 0 && rect.height > 0);
+  els.monthGrid.style.setProperty("--selected-week-offset", `${rowIndex * (rowHeight + rowGap)}px`);
+  els.monthInline.style.setProperty("--calendar-month-height", `${monthHeight}px`);
 }
 
 function startTimer() {

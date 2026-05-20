@@ -1,8 +1,8 @@
 {
-  "name": "daily-work-log",
+  "name": "todidlog",
   "version": "0.1.0",
   "private": true,
-  "description": "A local PWA for timer-based daily work logging.",
+  "description": "A local PWA for timer-based work logging.",
   "type": "module",
   "scripts": {
     "build": "npm run build:css",

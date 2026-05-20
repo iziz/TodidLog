@@ -1,11 +1,11 @@
 {
-  "name": "Daily Work Log",
-  "short_name": "Work Log",
+  "name": "TodidLog",
+  "short_name": "TodidLog",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f4f1ea",
-  "theme_color": "#f4f1ea",
-  "description": "A local weekly timeline for daily work sessions and Pomodoro tracking.",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "description": "A local PWA for timer-based work logging.",
   "icons": [
     {
       "src": "./icon.svg",
