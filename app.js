@@ -3,7 +3,7 @@ import { Editor } from "@tiptap/core";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import StarterKit from "@tiptap/starter-kit";
-import { computeDailyFortune, computeNatalSummary, resolveBirthplace, searchBirthplaces } from "./vendor/fortune-engine.js";
+import { computeDailyFortune, computeNatalSummary, resolveBirthplace, searchBirthplaces } from "./src/fortune-engine.js";
 
 const DATABASE_NAME = "todidlog";
 const STORAGE_KEY = "daily-work-log.sessions.v1";
@@ -15,10 +15,15 @@ const FORTUNE_PROFILE_META_KEY = "fortuneProfile";
 const LOCAL_STORAGE_MIGRATION_META_KEY = "localStorageMigration.v1";
 const LEGACY_DEFAULT_TITLE = "\uC791\uC5C5 \uAE30\uB85D";
 const LEGACY_MERGED_TITLE = "\uBCD1\uD569 \uC791\uC5C5";
+const GEMINI_PROXY_URL = "/api/gemini/generate";
+const GEMINI_TIMEOUT_MS = 7000;
+const GEMINI_CACHE_LIMIT = 30;
 let fortuneRenderId = 0;
 let fortuneSettingsPreviewId = 0;
 let detailsEditor = null;
 let persistQueue = Promise.resolve();
+const fortuneAiCache = new Map();
+let fortuneAiProxyDisabled = false;
 
 const db = new Dexie(DATABASE_NAME);
 db.version(1).stores({
@@ -279,7 +284,10 @@ async function renderFortuneSummary() {
   }
 
   try {
-    const fortune = await computeDailyFortune(normalizedFortuneProfile(state.fortuneProfile), state.selectedDate);
+    const profile = normalizedFortuneProfile(state.fortuneProfile);
+    const context = fortuneTaskContext(state.selectedDate);
+    const baseFortune = await computeDailyFortune(profile, state.selectedDate, context);
+    const fortune = await maybeRewriteFortuneWithGemini(baseFortune, profile, state.selectedDate, context);
     if (renderId !== fortuneRenderId) return;
     renderFortuneSummaryContent(fortune);
     els.fortuneSummary.classList.remove("hidden");
@@ -288,6 +296,241 @@ async function renderFortuneSummary() {
     els.fortuneSummary.classList.add("hidden");
     els.fortuneSummary.textContent = "";
   }
+}
+
+function fortuneTaskContext(dateKey) {
+  const items = visibleTimelineItemsForDate(dateKey);
+  const activeItem = dateKey === state.selectedDate ? activeSessionForSelectedDate() : null;
+  const tagCounts = new Map();
+  let totalMinutes = 0;
+  let longestMinutes = 0;
+  let crossDayCount = 0;
+  let continuationCount = 0;
+  let lateTaskCount = 0;
+
+  for (const item of items) {
+    const includedMinutes = Number.isFinite(item.includedMinutes) ? item.includedMinutes : item.duration;
+    totalMinutes += includedMinutes;
+    longestMinutes = Math.max(longestMinutes, includedMinutes);
+    if (item.isCrossDay) crossDayCount += 1;
+    if (item.isContinuation) continuationCount += 1;
+    if (isLateTimelineItem(item, dateKey)) lateTaskCount += 1;
+
+    for (const tag of reportItemDetails(item).tags || []) {
+      tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+    }
+  }
+
+  if (activeItem) {
+    totalMinutes += activeItem.includedMinutes || 0;
+    longestMinutes = Math.max(longestMinutes, activeItem.includedMinutes || 0);
+    if (activeItem.crossDay) crossDayCount += 1;
+    if (state.active?.date && state.active.date !== dateKey) continuationCount += 1;
+    if (timeToMinutes(activeItem.start) >= 18 * 60) lateTaskCount += 1;
+  }
+
+  return {
+    taskCount: items.length + (activeItem ? 1 : 0),
+    totalMinutes,
+    longestMinutes,
+    crossDayCount,
+    continuationCount,
+    lateTaskCount,
+    active: Boolean(activeItem),
+    topTag: topTagFromCounts(tagCounts),
+  };
+}
+
+function isLateTimelineItem(item, dateKey) {
+  const offset = dateOffsetMinutes(item.ownerDate, dateKey);
+  const start = clamp(offset + item.startMinute, 0, 1440);
+  const end = clamp(offset + item.endMinute, 0, 1440);
+  return start >= 18 * 60 || end >= 22 * 60;
+}
+
+function topTagFromCounts(tagCounts) {
+  return Array.from(tagCounts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || "";
+}
+
+async function maybeRewriteFortuneWithGemini(fortune, profile, dateKey, context) {
+  const proxyUrl = geminiProxyUrl();
+  if (!proxyUrl || fortuneAiProxyDisabled) return fortune;
+
+  const cacheKey = fortuneAiCacheKey(fortune, profile, dateKey, context, proxyUrl);
+  const cached = fortuneAiCache.get(cacheKey);
+  if (cached) return cached;
+
+  const rewritePromise = rewriteFortuneWithGemini(fortune, profile, dateKey, context, proxyUrl)
+    .catch((error) => {
+      fortuneAiCache.delete(cacheKey);
+      if ([404, 503].includes(error?.status)) fortuneAiProxyDisabled = true;
+      console.warn("Failed to rewrite fortune with Gemini.", error);
+      return fortune;
+    });
+  rememberFortuneAiCache(cacheKey, rewritePromise);
+
+  const rewritten = await rewritePromise;
+  rememberFortuneAiCache(cacheKey, rewritten);
+  return rewritten;
+}
+
+function geminiProxyUrl() {
+  const config = window.TODIDLOG_CONFIG || {};
+  return String(config.geminiProxyUrl || GEMINI_PROXY_URL).trim();
+}
+
+function fortuneAiCacheKey(fortune, profile, dateKey, context, proxyUrl) {
+  return [
+    "gemini",
+    dateKey,
+    profile?.language || "en",
+    hashString(proxyUrl),
+    hashString(JSON.stringify(redactedFortuneInput(fortune, profile, dateKey, context))),
+  ].join(":");
+}
+
+function rememberFortuneAiCache(key, value) {
+  if (fortuneAiCache.size >= GEMINI_CACHE_LIMIT) {
+    fortuneAiCache.delete(fortuneAiCache.keys().next().value);
+  }
+  fortuneAiCache.set(key, value);
+}
+
+async function rewriteFortuneWithGemini(fortune, profile, dateKey, context, proxyUrl) {
+  const payload = await fetchGeminiJson(proxyUrl, geminiFortunePrompt(fortune, profile, dateKey, context));
+  return applyGeminiFortuneRewrite(fortune, payload);
+}
+
+function geminiFortunePrompt(fortune, profile, dateKey, context) {
+  const languageName = profile?.language === "ko" ? "Korean" : "English";
+  return [
+    "Rewrite this daily fortune copy for TodidLog, a compact local task timer app.",
+    `Output language: ${languageName}.`,
+    "Keep the tone practical, concise, and natural. Avoid heavy mystical phrasing.",
+    "Do not add new facts, dates, birth details, task names, memos, URLs, or private information.",
+    "Do not mention Gemini, AI, API, astrology engines, Ziwei, or implementation details.",
+    "Do not repeat work-log phrases verbatim. Vary the wording when work context is present.",
+    "Return strict JSON only. Do not wrap it in markdown.",
+    "Required JSON shape:",
+    '{"headlineTail":"short title after the day pillar","body":"one compact sentence","details":{"flow":"one sentence","action":"one sentence","care":"one sentence"}}',
+    "Source data:",
+    JSON.stringify(redactedFortuneInput(fortune, profile, dateKey, context), null, 2),
+  ].join("\n");
+}
+
+function redactedFortuneInput(fortune, profile, dateKey, context) {
+  return {
+    date: dateKey,
+    language: profile?.language || "en",
+    headline: redactFortuneText(fortune?.headline),
+    body: redactFortuneText(fortune?.body),
+    details: (fortune?.details || []).map((item) => ({
+      label: redactFortuneText(item.label),
+      text: redactFortuneText(item.text),
+    })),
+    workContext: redactedFortuneTaskContext(context),
+  };
+}
+
+function redactedFortuneTaskContext(context = {}) {
+  return {
+    taskCount: Number(context.taskCount) || 0,
+    totalMinutes: Number(context.totalMinutes) || 0,
+    longestMinutes: Number(context.longestMinutes) || 0,
+    crossDayCount: Number(context.crossDayCount) || 0,
+    continuationCount: Number(context.continuationCount) || 0,
+    lateTaskCount: Number(context.lateTaskCount) || 0,
+    active: Boolean(context.active),
+    hasTopTag: Boolean(context.topTag),
+  };
+}
+
+function redactFortuneText(value) {
+  return String(value || "").replace(/#[\p{L}\p{N}_-]+/gu, "#tag");
+}
+
+async function fetchGeminiJson(proxyUrl, prompt) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(proxyUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (!response.ok) {
+      const error = new Error(`Gemini proxy request failed with ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    const data = await response.json();
+    const text = String(data.text || "").trim();
+    if (!text) throw new Error("Gemini proxy returned an empty response.");
+    return parseGeminiJsonText(text);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function parseGeminiJsonText(text) {
+  const cleaned = String(text || "")
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  return JSON.parse(cleaned);
+}
+
+function applyGeminiFortuneRewrite(fortune, rewrite) {
+  const headlineTail = normalizeAiFortuneText(rewrite?.headlineTail, 80);
+  const body = normalizeAiFortuneText(rewrite?.body, 180);
+  const detailInput = rewrite?.details || {};
+  const detailValues = {
+    flow: normalizeAiFortuneText(detailInput.flow || detailInput[0], 220),
+    action: normalizeAiFortuneText(detailInput.action || detailInput[1], 220),
+    care: normalizeAiFortuneText(detailInput.care || detailInput[2], 220),
+  };
+  const detailKeys = ["flow", "action", "care"];
+
+  return {
+    ...fortune,
+    headline: headlineTail ? `${fortuneDayPillarPrefix(fortune.headline)} · ${stripFortuneHeadlinePrefix(headlineTail)}` : fortune.headline,
+    body: body || fortune.body,
+    details: (fortune.details || []).map((item, index) => ({
+      ...item,
+      text: detailValues[detailKeys[index]] || item.text,
+    })),
+  };
+}
+
+function normalizeAiFortuneText(value, maxLength) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length > maxLength) return "";
+  return text;
+}
+
+function fortuneDayPillarPrefix(headline) {
+  return String(headline || "").split("·")[0].trim();
+}
+
+function stripFortuneHeadlinePrefix(value) {
+  return String(value || "").replace(/^[^·]{1,16}·\s*/, "").trim();
+}
+
+function hashString(value) {
+  let hash = 5381;
+  const text = String(value || "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 33) ^ text.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function renderFortuneSummaryContent(fortune) {

@@ -5,13 +5,13 @@
   "description": "A local PWA for timer-based work logging.",
   "type": "module",
   "scripts": {
-    "build": "npm run build:css && npm run build:fortune && npm run build:app",
+    "build": "npm run build:css && npm run build:app",
     "build:app": "esbuild ./app.js --bundle --format=esm --outfile=./vendor/app.js --minify",
     "build:css": "tailwindcss -i ./src/styles.css -o ./styles.css --minify",
-    "build:fortune": "esbuild ./src/fortune-engine.js --bundle --format=esm --outfile=./vendor/fortune-engine.js --minify",
     "watch:css": "tailwindcss -i ./src/styles.css -o ./styles.css --watch",
-    "dev": "npm run build && python -m http.server 5173",
-    "start": "npm run build && python -m http.server 5173"
+    "serve": "node ./scripts/server.mjs",
+    "dev": "npm run build && npm run serve",
+    "start": "npm run build && npm run serve"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.0",

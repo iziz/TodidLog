@@ -2,9 +2,12 @@ import { calculateSaju } from "@orrery/core/saju";
 import { analyzePillarRelations, getFourPillars } from "@orrery/core/pillars";
 import { filterCities, formatCityName } from "@orrery/core/cities";
 import { ZODIAC_KO, calculateNatal } from "@orrery/core/natal";
+import { calculateLiunian, createChart } from "@orrery/core/ziwei";
 
 const NATAL_PILLAR_NAMES = ["hour", "day", "month", "year"];
 const RELATION_PRIORITY = ["沖", "刑", "破", "害", "合", "半合", "三合", "方合"];
+const NATAL_PILLAR_PRIORITY = { day: 0, month: 1, hour: 2, year: 3 };
+const CHANNEL_PRIORITY = { branch: 0, stem: 1 };
 const MAX_BIRTHPLACE_RESULTS = 12;
 
 const CITY_ALIASES = [
@@ -66,8 +69,65 @@ const COPY = {
       action: "Action",
       care: "Care",
     },
+    pillarFocus: {
+      hour: "This signal touches execution rhythm first.",
+      day: "This signal touches personal pace first.",
+      month: "This signal touches work structure first.",
+      year: "This signal touches outside expectations first.",
+    },
+    secondarySignal: "A secondary {relation} signal is also present, so keep the scope explicit.",
+    relationNames: {
+      合: "alignment",
+      半合: "partial connection",
+      三合: "momentum",
+      方合: "structure",
+      沖: "friction",
+      刑: "review",
+      破: "buffer",
+      害: "clarity",
+    },
+    ziwei: {
+      flow: "The Ziwei layer adds a monthly focus on {monthlyFocus}, with the longer cycle around {longFocus}.",
+      action: "Use the {positiveTone} around {positiveFocus}, and put a guardrail around the {cautionTone} near {cautionFocus}.",
+      care: "Use this as a background signal, not a reason to override the task evidence.",
+      unknownTimeCare: "Birth time is unknown, so read the Ziwei layer lightly.",
+      palaceDomains: {
+        命宮: "personal pace",
+        兄弟: "shared resources",
+        夫妻: "agreements",
+        子女: "outputs and experiments",
+        財帛: "value and resources",
+        疾厄: "recovery and load",
+        遷移: "external context",
+        交友: "collaboration",
+        官祿: "work direction",
+        田宅: "base and environment",
+        福德: "mental space",
+        父母: "support and constraints",
+      },
+      sihuaTones: {
+        化祿: "ease",
+        化權: "decision pressure",
+        化科: "credibility",
+        化忌: "friction",
+      },
+    },
     neutralHeadline: "Steady progress works best",
     neutralBody: "Keep one clear priority and let consistency do the work.",
+    neutralVariants: [
+      {
+        headline: "Steady progress works best",
+        body: "Keep one clear priority and let consistency do the work.",
+      },
+      {
+        headline: "A simple rhythm fits best",
+        body: "Use a clear first step and avoid making the plan heavier than it needs to be.",
+      },
+      {
+        headline: "Consistency carries the day",
+        body: "Small completions will matter more than a dramatic shift in direction.",
+      },
+    ],
     neutralDetails: {
       flow: "A calm, regular pace is more useful than a dramatic shift.",
       action: "Choose one task that makes the rest easier and finish it first.",
@@ -84,6 +144,48 @@ const COPY = {
       刑: ["Review before you commit", "Avoid forcing outcomes and check details one more time."],
       破: ["Leave room for buffer", "Small plans may break; protect your schedule with extra margin."],
       害: ["Clarify things early", "Quiet friction can build up, so make expectations explicit."],
+    },
+    relationVariants: {
+      合: [
+        { headline: "Ideas align well today", body: "Use the flow to bring loose threads together." },
+        { headline: "Shared context comes together", body: "A short alignment step can turn scattered notes into a clear decision." },
+        { headline: "Connections are easier to make", body: "Pair related conversations and close one open loop." },
+      ],
+      半合: [
+        { headline: "Scattered ideas can connect", body: "Pick one thread and finish it before switching context." },
+        { headline: "A partial link is enough to start", body: "Treat the useful clue as a draft, then shape it into one next action." },
+        { headline: "Loose signals can become useful", body: "Keep the frame narrow so the connection does not spread too wide." },
+      ],
+      三合: [
+        { headline: "Related work gains momentum", body: "Group similar tasks and avoid unnecessary context switching." },
+        { headline: "Momentum builds through batching", body: "Move through related items together before opening a new lane." },
+        { headline: "One theme can carry several tasks", body: "Use the shared direction to finish more with less switching." },
+      ],
+      方合: [
+        { headline: "Structure supports progress", body: "Follow the existing plan and make steady improvements." },
+        { headline: "Routine gives the day shape", body: "Use a known process and refine one weak edge." },
+        { headline: "A clear frame helps decisions", body: "Keep the order visible and move through it without adding extra process." },
+      ],
+      沖: [
+        { headline: "Keep decisions small today", body: "Expect friction or sudden changes; choose reversible steps." },
+        { headline: "Leave room for a turn", body: "Opposing signals can show up, so avoid locking the plan too early." },
+        { headline: "Move in smaller commitments", body: "Test the next step before promising the whole direction." },
+      ],
+      刑: [
+        { headline: "Review before you commit", body: "Avoid forcing outcomes and check details one more time." },
+        { headline: "Pressure makes details louder", body: "Slow the final decision enough to verify the assumption behind it." },
+        { headline: "The last check matters", body: "A small review pass can prevent avoidable rework later." },
+      ],
+      破: [
+        { headline: "Leave room for buffer", body: "Small plans may break; protect your schedule with extra margin." },
+        { headline: "Protect the important block", body: "Use buffer time around fragile work and avoid stacking tight promises." },
+        { headline: "Plans need extra slack", body: "Treat interruptions as likely and keep one fallback path ready." },
+      ],
+      害: [
+        { headline: "Clarify things early", body: "Quiet friction can build up, so make expectations explicit." },
+        { headline: "Name the hidden mismatch", body: "A quick clarification can prevent a small gap from becoming work later." },
+        { headline: "Check shared assumptions", body: "Do not rely on implied agreement when the next step needs precision." },
+      ],
     },
     relationDetails: {
       合: {
@@ -134,6 +236,33 @@ const COPY = {
       metal: ["Cleanup and decisions fit today", "Trim loose options and make the next action precise."],
       water: ["Research flows more easily today", "Follow useful clues, then capture the result before moving on."],
     },
+    elementVariants: {
+      tree: [
+        { headline: "Planning can grow today", body: "Shape one rough idea into a clear next step." },
+        { headline: "Ideas need a visible path", body: "Write the sequence before expanding the scope." },
+        { headline: "A draft can turn into direction", body: "Let one rough outline become the next concrete task." },
+      ],
+      fire: [
+        { headline: "Expression has momentum today", body: "Share the point early and keep the feedback loop short." },
+        { headline: "Communication moves quickly", body: "Make the key point visible before the thread spreads out." },
+        { headline: "Feedback can sharpen the work", body: "Use a short exchange to find what needs adjustment." },
+      ],
+      earth: [
+        { headline: "Groundwork matters today", body: "Stabilize the basics before adding anything new." },
+        { headline: "The base needs attention", body: "Check the foundation that the next work depends on." },
+        { headline: "Steady structure beats novelty", body: "Improve the reliable part before opening new scope." },
+      ],
+      metal: [
+        { headline: "Cleanup and decisions fit today", body: "Trim loose options and make the next action precise." },
+        { headline: "Prioritization is the useful move", body: "Remove one unnecessary option and make the remaining path clearer." },
+        { headline: "A crisp decision helps", body: "Turn scattered choices into one clean next step." },
+      ],
+      water: [
+        { headline: "Research flows more easily today", body: "Follow useful clues, then capture the result before moving on." },
+        { headline: "Discovery has a natural pull", body: "Trace the useful signal, but decide where the search stops." },
+        { headline: "Reading and synthesis fit", body: "Collect enough context to move, then write down the result." },
+      ],
+    },
     elementDetails: {
       tree: {
         flow: "Ideas expand well when they are written as steps.",
@@ -159,6 +288,98 @@ const COPY = {
         flow: "Research, reading, and discovery are easier to follow.",
         action: "Trace the useful clue, then capture the result before opening another path.",
         care: "Exploration can spread out if the stopping point is unclear.",
+      },
+    },
+    workSignals: {
+      empty: {
+        body: [
+          "No tasks are logged for this date yet, so keep the first move intentionally small.",
+          "With no recorded work yet, the useful move is to choose one clean starting point.",
+        ],
+        detail: [
+          "Start with one task that gives the day a visible shape.",
+          "Use the first record as the anchor for the rest of the day.",
+        ],
+      },
+      light: {
+        body: [
+          "{duration} is logged so far; use the light load to close one clear item.",
+          "The logged load is still light at {duration}, which makes a focused finish easier.",
+        ],
+        detail: [
+          "Keep the next step small enough to complete in one pass.",
+          "Use the open space to finish, not to add too many new threads.",
+        ],
+      },
+      focused: {
+        body: [
+          "Most of the logged time is concentrated, so protect that single thread.",
+          "A long focused block is already visible; keep the handoff or finish line explicit.",
+        ],
+        detail: [
+          "Write down the end condition before the focus block spreads.",
+          "Keep the main thread intact and defer unrelated cleanup.",
+        ],
+      },
+      fragmented: {
+        body: [
+          "{tasks} tasks are already visible, so the day benefits from grouping and pruning.",
+          "The task list is split across {tasks} items; reduce switching where you can.",
+        ],
+        detail: [
+          "Merge related work or choose the next task by dependency, not by noise.",
+          "Avoid letting small items decide the whole day.",
+        ],
+      },
+      heavy: {
+        body: [
+          "{duration} is already logged, so recovery and a clear stop point matter.",
+          "The day is carrying {duration}; protect the finish by narrowing the remaining scope.",
+        ],
+        detail: [
+          "Choose what will not be handled today as clearly as what will.",
+          "Leave margin before making another time-heavy commitment.",
+        ],
+      },
+      crossDay: {
+        body: [
+          "Cross-day work is part of this date, so separate carryover from new decisions.",
+          "Some time crosses midnight; treat today's portion as its own slice.",
+        ],
+        detail: [
+          "Mark what belongs to recovery, continuation, and new work separately.",
+          "Do not let yesterday's spillover set every priority for today.",
+        ],
+      },
+      late: {
+        body: [
+          "Late work is visible in the log, so keep the next decision lighter than usual.",
+          "The record leans into later hours; a softer finish will help the next day.",
+        ],
+        detail: [
+          "Capture the conclusion before opening another late thread.",
+          "Prefer a clear stopping note over one more broad task.",
+        ],
+      },
+      active: {
+        body: [
+          "A timer is running now, so the best signal is to define the next stopping point.",
+          "Current work is still open; keep the live task narrow enough to close cleanly.",
+        ],
+        detail: [
+          "Name the finish condition before the timer block gets too wide.",
+          "Use the active block to create a clear record, not just elapsed time.",
+        ],
+      },
+      tagged: {
+        body: [
+          "#{tag} appears most often, so that thread can be the organizing handle.",
+          "The #{tag} tag is leading the day; use it to keep the next choice coherent.",
+        ],
+        detail: [
+          "Let #{tag} decide what gets grouped and what waits.",
+          "Use the dominant tag as a boundary for the next work block.",
+        ],
       },
     },
   },
@@ -197,8 +418,65 @@ const COPY = {
       action: "추천",
       care: "주의",
     },
+    pillarFocus: {
+      hour: "이 신호는 실행 리듬 쪽에 먼저 닿습니다.",
+      day: "이 신호는 개인 페이스 쪽에 먼저 닿습니다.",
+      month: "이 신호는 업무 구조 쪽에 먼저 닿습니다.",
+      year: "이 신호는 외부 기대치 쪽에 먼저 닿습니다.",
+    },
+    secondarySignal: "보조 신호로 {relation} 흐름도 있어 범위를 분명히 두는 편이 좋습니다.",
+    relationNames: {
+      合: "정렬",
+      半合: "부분 연결",
+      三合: "탄력",
+      方合: "구조",
+      沖: "마찰",
+      刑: "검토",
+      破: "완충",
+      害: "명확화",
+    },
+    ziwei: {
+      flow: "자미두수 보조 신호는 이번 달 {monthlyFocus}, 긴 주기에서는 {longFocus} 쪽을 가리킵니다.",
+      action: "{positiveFocus} 쪽은 {positiveTone} 흐름을 활용하고, {cautionFocus} 쪽은 {cautionTone} 흐름에 대비하세요.",
+      care: "이 신호는 방향 보정용으로만 보고, 실제 작업 기록을 우선하세요.",
+      unknownTimeCare: "출생 시간을 모르는 상태라 자미두수 보조 신호는 가볍게 보는 편이 좋습니다.",
+      palaceDomains: {
+        命宮: "개인 페이스",
+        兄弟: "공유 자원",
+        夫妻: "합의와 관계",
+        子女: "결과물과 실험",
+        財帛: "가치와 리소스",
+        疾厄: "회복과 부하",
+        遷移: "외부 맥락",
+        交友: "협업",
+        官祿: "업무 방향",
+        田宅: "기반과 환경",
+        福德: "심리적 여유",
+        父母: "지원과 제약",
+      },
+      sihuaTones: {
+        化祿: "여유",
+        化權: "결정 압박",
+        化科: "검증과 신뢰",
+        化忌: "마찰",
+      },
+    },
     neutralHeadline: "차분한 진행이 잘 맞는 날",
     neutralBody: "우선순위 하나를 분명히 잡고 꾸준히 밀어붙이는 쪽이 좋습니다.",
+    neutralVariants: [
+      {
+        headline: "차분한 진행이 잘 맞는 날",
+        body: "우선순위 하나를 분명히 잡고 꾸준히 밀어붙이는 쪽이 좋습니다.",
+      },
+      {
+        headline: "단순한 리듬이 잘 맞는 날",
+        body: "첫 단계를 작게 잡고 계획을 필요 이상으로 무겁게 만들지 않는 편이 좋습니다.",
+      },
+      {
+        headline: "꾸준함이 힘이 되는 날",
+        body: "큰 전환보다 작은 완료를 차곡차곡 만드는 쪽이 더 잘 맞습니다.",
+      },
+    ],
     neutralDetails: {
       flow: "큰 전환보다 일정한 리듬이 더 잘 맞습니다.",
       action: "나머지 일을 쉽게 만들어주는 작업 하나를 먼저 끝내세요.",
@@ -215,6 +493,48 @@ const COPY = {
       刑: ["확정 전에 한 번 더 볼 날", "무리하게 밀어붙이기보다 세부 내용을 다시 확인하세요."],
       破: ["여유 시간을 남겨둘 날", "작은 계획이 어긋날 수 있으니 일정에 완충을 두는 편이 좋습니다."],
       害: ["초반에 기대치를 맞출 날", "조용한 엇갈림이 쌓이지 않도록 먼저 명확히 해두세요."],
+    },
+    relationVariants: {
+      合: [
+        { headline: "생각의 결이 잘 맞는 날", body: "흩어진 일을 하나로 묶고 정리하기 좋습니다." },
+        { headline: "공유된 맥락이 붙는 날", body: "짧게 기준을 맞추면 흩어진 메모가 하나의 결정으로 이어질 수 있습니다." },
+        { headline: "연결을 만들기 쉬운 날", body: "관련된 대화와 작업을 붙여서 열린 고리 하나를 닫아보세요." },
+      ],
+      半合: [
+        { headline: "흩어진 아이디어가 이어지는 날", body: "작업 전환을 줄이고 한 가지 흐름을 끝까지 잡아보세요." },
+        { headline: "부분적인 단서로 시작할 날", body: "쓸모 있는 단서 하나를 초안으로 보고 다음 행동으로 바꿔보세요." },
+        { headline: "느슨한 신호가 쓸모 있어지는 날", body: "연결이 너무 넓게 퍼지지 않도록 범위를 좁게 잡는 편이 좋습니다." },
+      ],
+      三合: [
+        { headline: "관련 작업에 탄력이 붙는 날", body: "비슷한 일을 묶어서 처리하면 흐름이 좋아집니다." },
+        { headline: "묶어서 처리할수록 속도가 나는 날", body: "새 흐름을 열기 전에 관련 항목을 한 번에 지나가 보세요." },
+        { headline: "하나의 주제가 여러 일을 끌고 가는 날", body: "공통된 방향을 이용하면 전환을 줄이면서 더 많이 마무리할 수 있습니다." },
+      ],
+      方合: [
+        { headline: "구조가 진행을 도와주는 날", body: "이미 잡아둔 계획을 따라가며 차분히 다듬기 좋습니다." },
+        { headline: "루틴이 하루를 잡아주는 날", body: "익숙한 절차를 쓰고 약한 부분 하나를 보완해보세요." },
+        { headline: "분명한 틀이 결정을 돕는 날", body: "순서를 보이는 상태로 두고 불필요한 절차는 늘리지 않는 편이 좋습니다." },
+      ],
+      沖: [
+        { headline: "결정은 작게 가져갈 날", body: "마찰이나 변화가 생길 수 있으니 되돌릴 수 있는 선택이 좋습니다." },
+        { headline: "방향 전환의 여지를 둘 날", body: "서로 다른 신호가 들어올 수 있으니 계획을 너무 일찍 고정하지 마세요." },
+        { headline: "약속은 작게 나눌 날", body: "전체 방향을 확정하기 전에 다음 단계 하나를 먼저 시험해보세요." },
+      ],
+      刑: [
+        { headline: "확정 전에 한 번 더 볼 날", body: "무리하게 밀어붙이기보다 세부 내용을 다시 확인하세요." },
+        { headline: "압박 속에서 세부가 커지는 날", body: "최종 결정을 조금 늦추고 그 뒤의 전제를 확인하는 편이 좋습니다." },
+        { headline: "마지막 확인이 중요한 날", body: "작은 검토 한 번이 나중의 재작업을 줄여줄 수 있습니다." },
+      ],
+      破: [
+        { headline: "여유 시간을 남겨둘 날", body: "작은 계획이 어긋날 수 있으니 일정에 완충을 두는 편이 좋습니다." },
+        { headline: "중요한 블록을 보호할 날", body: "취약한 작업 주변에 여유를 두고 빡빡한 약속을 겹치지 마세요." },
+        { headline: "계획에 여백이 필요한 날", body: "방해가 생길 수 있다고 보고 대체 경로 하나를 남겨두세요." },
+      ],
+      害: [
+        { headline: "초반에 기대치를 맞출 날", body: "조용한 엇갈림이 쌓이지 않도록 먼저 명확히 해두세요." },
+        { headline: "숨은 어긋남을 이름 붙일 날", body: "짧은 확인이 작은 차이를 나중의 일로 키우지 않게 해줍니다." },
+        { headline: "공유된 전제를 확인할 날", body: "다음 행동에 정확성이 필요하다면 암묵적인 합의에 기대지 마세요." },
+      ],
     },
     relationDetails: {
       合: {
@@ -265,6 +585,33 @@ const COPY = {
       metal: ["정리와 판단이 잘 맞는 날", "선택지를 덜어내고 다음 행동을 또렷하게 정하세요."],
       water: ["탐색 흐름이 좋은 날", "단서를 따라가되 결과를 기록하고 다음으로 넘어가세요."],
     },
+    elementVariants: {
+      tree: [
+        { headline: "기획이 자라기 좋은 날", body: "막연한 아이디어 하나를 다음 행동으로 구체화해보세요." },
+        { headline: "아이디어에 경로가 필요한 날", body: "범위를 넓히기 전에 순서를 먼저 적어보는 편이 좋습니다." },
+        { headline: "초안이 방향이 되는 날", body: "거친 개요 하나를 실제 다음 작업으로 바꿔보세요." },
+      ],
+      fire: [
+        { headline: "표현에 탄력이 붙는 날", body: "핵심을 먼저 공유하고 피드백 흐름을 짧게 가져가세요." },
+        { headline: "소통이 빠르게 움직이는 날", body: "이야기가 퍼지기 전에 핵심 문장을 먼저 보이게 하세요." },
+        { headline: "피드백이 일을 선명하게 하는 날", body: "짧은 주고받기로 조정할 지점을 찾아보세요." },
+      ],
+      earth: [
+        { headline: "기반을 다지기 좋은 날", body: "새로운 것을 얹기보다 기본 구조를 안정시키는 쪽이 좋습니다." },
+        { headline: "바탕을 확인해야 하는 날", body: "다음 일이 기대는 전제와 파일, 절차를 먼저 점검하세요." },
+        { headline: "새로움보다 안정감이 맞는 날", body: "새 범위를 열기 전에 믿고 쓸 수 있는 부분을 다듬어보세요." },
+      ],
+      metal: [
+        { headline: "정리와 판단이 잘 맞는 날", body: "선택지를 덜어내고 다음 행동을 또렷하게 정하세요." },
+        { headline: "우선순위가 힘을 쓰는 날", body: "불필요한 선택지 하나를 지워 남은 길을 더 선명하게 만드세요." },
+        { headline: "깔끔한 결정이 도움이 되는 날", body: "흩어진 선택을 하나의 분명한 다음 단계로 바꿔보세요." },
+      ],
+      water: [
+        { headline: "탐색 흐름이 좋은 날", body: "단서를 따라가되 결과를 기록하고 다음으로 넘어가세요." },
+        { headline: "발견의 흐름이 자연스러운 날", body: "쓸모 있는 신호를 따라가되 어디서 멈출지도 함께 정하세요." },
+        { headline: "읽고 종합하기 좋은 날", body: "움직일 만큼의 맥락을 모은 뒤 결과를 적어두는 편이 좋습니다." },
+      ],
+    },
     elementDetails: {
       tree: {
         flow: "아이디어는 단계로 적을 때 더 잘 자랍니다.",
@@ -292,14 +639,107 @@ const COPY = {
         care: "멈출 지점이 없으면 탐색이 너무 넓게 퍼질 수 있습니다.",
       },
     },
+    workSignals: {
+      empty: {
+        body: [
+          "이 날짜에는 아직 기록된 작업이 없으니 첫 움직임을 의도적으로 작게 잡아보세요.",
+          "아직 기록이 없다면 오늘을 잡아줄 시작점 하나를 정하는 게 좋습니다.",
+        ],
+        detail: [
+          "하루의 형태가 보이도록 첫 작업 하나를 먼저 기록하세요.",
+          "첫 기록을 나머지 흐름의 기준점으로 쓰는 편이 좋습니다.",
+        ],
+      },
+      light: {
+        body: [
+          "지금까지 {duration} 기록되어 있으니 가벼운 부하를 이용해 한 가지를 닫기 좋습니다.",
+          "기록된 부하는 아직 {duration}이라, 집중해서 마무리하기 좋은 여지가 있습니다.",
+        ],
+        detail: [
+          "다음 단계는 한 번에 끝낼 수 있을 만큼 작게 유지하세요.",
+          "남은 여백은 새 일을 늘리기보다 마무리에 쓰는 편이 좋습니다.",
+        ],
+      },
+      focused: {
+        body: [
+          "기록된 시간이 한 흐름에 많이 모여 있으니 그 실마리를 보호하는 편이 좋습니다.",
+          "긴 집중 블록이 이미 보이니 인계점이나 완료 기준을 분명히 두세요.",
+        ],
+        detail: [
+          "집중 블록이 넓어지기 전에 끝 조건을 먼저 적어두세요.",
+          "주된 흐름은 유지하고 관련 없는 정리는 뒤로 미루는 편이 좋습니다.",
+        ],
+      },
+      fragmented: {
+        body: [
+          "{tasks}개의 작업이 보이니 묶고 덜어내는 쪽이 하루에 도움이 됩니다.",
+          "작업이 {tasks}개로 나뉘어 있으니 전환을 줄이는 방향이 좋습니다.",
+        ],
+        detail: [
+          "관련 작업은 묶고, 다음 작업은 소음보다 의존성 기준으로 고르세요.",
+          "작은 항목들이 하루 전체를 결정하게 두지 마세요.",
+        ],
+      },
+      heavy: {
+        body: [
+          "이미 {duration} 기록되어 있으니 회복과 멈출 지점을 분명히 하는 게 중요합니다.",
+          "오늘은 {duration}만큼의 무게를 갖고 있으니 남은 범위를 좁혀 마무리를 보호하세요.",
+        ],
+        detail: [
+          "오늘 처리하지 않을 것도 처리할 것만큼 분명히 정하세요.",
+          "시간을 많이 쓰는 약속을 더 잡기 전에는 여유를 남기는 편이 좋습니다.",
+        ],
+      },
+      crossDay: {
+        body: [
+          "날짜를 넘긴 작업이 포함되어 있으니 이어받은 일과 새 결정을 분리해서 보세요.",
+          "자정을 넘긴 시간이 섞여 있으니 오늘에 해당하는 몫을 따로 다루는 편이 좋습니다.",
+        ],
+        detail: [
+          "회복, 이어가기, 새 작업을 구분해 기록하세요.",
+          "어제의 여파가 오늘의 모든 우선순위를 정하게 두지 마세요.",
+        ],
+      },
+      late: {
+        body: [
+          "늦은 시간대 작업이 보이니 다음 결정은 평소보다 가볍게 잡는 편이 좋습니다.",
+          "기록이 늦은 시간으로 기울어 있어 부드럽게 마무리하는 쪽이 다음 날에 좋습니다.",
+        ],
+        detail: [
+          "늦은 흐름을 더 열기 전에 결론부터 남기세요.",
+          "넓은 새 작업보다 명확한 중단 메모가 더 유용합니다.",
+        ],
+      },
+      active: {
+        body: [
+          "지금 타이머가 실행 중이라, 다음 멈출 지점을 정하는 게 가장 좋은 신호입니다.",
+          "현재 작업이 열려 있으니 깔끔하게 닫을 수 있을 만큼 범위를 좁게 유지하세요.",
+        ],
+        detail: [
+          "타이머 블록이 넓어지기 전에 완료 조건을 정하세요.",
+          "흘러간 시간보다 분명한 기록을 만드는 데 집중하세요.",
+        ],
+      },
+      tagged: {
+        body: [
+          "#{tag} 태그가 가장 자주 보이니 그 흐름을 하루의 정리 기준으로 삼기 좋습니다.",
+          "#{tag} 흐름이 앞에 있으니 다음 선택도 그 기준 안에서 잡아보세요.",
+        ],
+        detail: [
+          "#{tag} 기준으로 묶을 것과 미룰 것을 나눠보세요.",
+          "주된 태그를 다음 작업 블록의 경계로 쓰는 편이 좋습니다.",
+        ],
+      },
+    },
   },
 };
 
-export function computeDailyFortune(profile, dateKey) {
+export function computeDailyFortune(profile, dateKey, workContext = {}) {
   const language = normalizeLanguage(profile?.language);
   const copy = COPY[language];
   const birthInput = normalizeBirthInput(profile);
   const selectedDate = parseDateKey(dateKey);
+  const context = normalizeWorkContext(workContext);
   const natal = calculateSaju(birthInput);
   const todayPillars = getFourPillars(
     selectedDate.getFullYear(),
@@ -311,23 +751,30 @@ export function computeDailyFortune(profile, dateKey) {
   const dayPillar = todayPillars[2];
   const relations = collectDailyRelations(dayPillar, natal.pillars.map((item) => item.pillar.ganzi));
   const primary = pickPrimaryRelation(relations);
+  const secondary = pickSecondaryRelation(relations, primary);
+  const seed = fortuneSeed(profile, dateKey, dayPillar, primary);
+  const ziwei = buildZiweiSignal(copy, birthInput, selectedDate, seed);
 
   if (!primary) {
+    const neutral = pickSeeded(copy.neutralVariants || [], `${seed}:neutral`) || {
+      headline: copy.neutralHeadline,
+      body: copy.neutralBody,
+    };
     return {
       title: copy.title,
-      headline: `${dayPillar} · ${copy.neutralHeadline}`,
-      body: copy.neutralBody,
-      details: buildDetailItems(copy, null),
+      headline: `${dayPillar} · ${neutral.headline}`,
+      body: neutral.body,
+      details: buildDetailItems(copy, null, { secondary, relationCount: relations.length, ziwei }, context, seed, language),
       language,
     };
   }
 
-  const [headline, body] = relationCopy(copy, primary);
+  const { headline, body } = relationCopy(copy, primary, seed);
   return {
     title: copy.title,
     headline: `${dayPillar} · ${headline}`,
     body,
-    details: buildDetailItems(copy, primary),
+    details: buildDetailItems(copy, primary, { secondary, relationCount: relations.length, ziwei }, context, seed, language),
     language,
   };
 }
@@ -349,26 +796,41 @@ export function resolveBirthplace(value) {
   return collectBirthplaceMatches(text).find((place) => normalizeSearchText(place.label) === normalizeSearchText(text)) || null;
 }
 
-function relationCopy(copy, relation) {
-  if (isElementRelation(relation) && copy.elementFlows[relation.detail]) {
-    return copy.elementFlows[relation.detail];
+function relationCopy(copy, relation, seed) {
+  if (isElementRelation(relation) && copy.elementVariants?.[relation.detail]) {
+    return pickSeeded(copy.elementVariants[relation.detail], `${seed}:element:${relation.detail}`);
   }
-  return copy.relations[relation.type] || [copy.fallbackHeadline, copy.fallbackBody];
+  if (copy.relationVariants?.[relation.type]) {
+    return pickSeeded(copy.relationVariants[relation.type], `${seed}:relation:${relation.type}`);
+  }
+  if (isElementRelation(relation) && copy.elementFlows[relation.detail]) {
+    const [headline, body] = copy.elementFlows[relation.detail];
+    return { headline, body };
+  }
+  const [headline, body] = copy.relations[relation.type] || [copy.fallbackHeadline, copy.fallbackBody];
+  return { headline, body };
 }
 
 function isElementRelation(relation) {
   return ["半合", "三合", "方合"].includes(relation?.type);
 }
 
-function buildDetailItems(copy, relation) {
+function buildDetailItems(copy, relation, signals, context, seed, language) {
   const source =
     (isElementRelation(relation) && copy.elementDetails[relation.detail]) ||
     copy.relationDetails[relation?.type] ||
     copy.neutralDetails;
+  const flow = joinSentences(source.flow, relation ? copy.pillarFocus?.[relation.natalPillar] : "", signals?.ziwei?.flow);
+  const action = joinSentences(source.action, buildWorkContextText(copy, context, seed, "detail", language), signals?.ziwei?.action);
+  const care = joinSentences(source.care, secondarySignalText(copy, signals?.secondary), signals?.ziwei?.care);
 
-  return ["flow", "action", "care"].map((key) => ({
+  return [
+    ["flow", flow],
+    ["action", action],
+    ["care", care],
+  ].map(([key, text]) => ({
     label: copy.detailLabels[key],
-    text: source[key],
+    text,
   }));
 }
 
@@ -527,11 +989,22 @@ function collectDailyRelations(dayPillar, natalPillars) {
 
   natalPillars.forEach((pillar, index) => {
     const result = analyzePillarRelations(dayPillar, pillar);
-    for (const item of [...result.stem, ...result.branch]) {
+    for (const item of result.stem) {
       relations.push({
         type: item.type,
         detail: item.detail,
         natalPillar: NATAL_PILLAR_NAMES[index] || "natal",
+        natalGanzi: pillar,
+        channel: "stem",
+      });
+    }
+    for (const item of result.branch) {
+      relations.push({
+        type: item.type,
+        detail: item.detail,
+        natalPillar: NATAL_PILLAR_NAMES[index] || "natal",
+        natalGanzi: pillar,
+        channel: "branch",
       });
     }
   });
@@ -542,7 +1015,185 @@ function collectDailyRelations(dayPillar, natalPillars) {
 function pickPrimaryRelation(relations) {
   return relations
     .filter((relation) => RELATION_PRIORITY.includes(relation.type))
-    .sort((a, b) => RELATION_PRIORITY.indexOf(a.type) - RELATION_PRIORITY.indexOf(b.type))[0];
+    .sort(compareRelations)[0];
+}
+
+function pickSecondaryRelation(relations, primary) {
+  return relations
+    .filter((relation) => RELATION_PRIORITY.includes(relation.type))
+    .filter((relation) => !isSameRelationFamily(relation, primary))
+    .sort(compareRelations)[0];
+}
+
+function compareRelations(a, b) {
+  return (
+    RELATION_PRIORITY.indexOf(a.type) - RELATION_PRIORITY.indexOf(b.type) ||
+    (NATAL_PILLAR_PRIORITY[a.natalPillar] ?? 99) - (NATAL_PILLAR_PRIORITY[b.natalPillar] ?? 99) ||
+    (CHANNEL_PRIORITY[a.channel] ?? 99) - (CHANNEL_PRIORITY[b.channel] ?? 99) ||
+    String(a.detail || "").localeCompare(String(b.detail || ""))
+  );
+}
+
+function isSameRelationFamily(a, b) {
+  if (!a || !b) return false;
+  return a.type === b.type && a.detail === b.detail;
+}
+
+function secondarySignalText(copy, relation) {
+  if (!relation) return "";
+  const name = copy.relationNames?.[relation.type] || relation.type;
+  return fillTemplate(copy.secondarySignal, { relation: name });
+}
+
+function buildZiweiSignal(copy, birthInput, selectedDate, seed) {
+  try {
+    const chart = createChart(birthInput.year, birthInput.month, birthInput.day, birthInput.hour, birthInput.minute, birthInput.gender === "M");
+    const liunian = calculateLiunian(chart, selectedDate.getFullYear());
+    const monthlyFocus = ziweiMonthlyFocus(liunian, selectedDate) || liunian.natalPalaceAtMing;
+    const longFocus = liunian.daxianPalaceName || liunian.natalPalaceAtMing;
+    const sihua = ziweiSihuaPair(copy, liunian, seed);
+    const flow = monthlyFocus && longFocus
+      ? fillTemplate(copy.ziwei.flow, {
+          monthlyFocus: ziweiPalaceDomain(copy, monthlyFocus),
+          longFocus: ziweiPalaceDomain(copy, longFocus),
+        })
+      : "";
+    const action = sihua
+      ? fillTemplate(copy.ziwei.action, {
+          positiveFocus: ziweiPalaceDomain(copy, sihua.positiveFocus),
+          positiveTone: ziweiSihuaTone(copy, sihua.positiveKey),
+          cautionFocus: ziweiPalaceDomain(copy, sihua.cautionFocus),
+          cautionTone: ziweiSihuaTone(copy, sihua.cautionKey),
+        })
+      : "";
+    const care = joinSentences(copy.ziwei.care, birthInput.unknownTime ? copy.ziwei.unknownTimeCare : "");
+
+    if (!flow && !action && !care) return null;
+    return { flow, action, care };
+  } catch {
+    return null;
+  }
+}
+
+function ziweiMonthlyFocus(liunian, selectedDate) {
+  const month = selectedDate.getMonth() + 1;
+  return liunian.liuyue?.find((item) => item.month === month)?.natalPalaceName || "";
+}
+
+function ziweiSihuaPair(copy, liunian, seed) {
+  const pairs = [
+    ["化祿", "化忌"],
+    ["化科", "化權"],
+  ];
+  const [positiveKey, cautionKey] = pickSeeded(pairs, `${seed}:ziwei:sihua`) || pairs[0];
+  const positiveFocus = liunian.siHuaPalaces?.[positiveKey];
+  const cautionFocus = liunian.siHuaPalaces?.[cautionKey];
+  if (!positiveFocus || !cautionFocus) return null;
+  if (!copy.ziwei.sihuaTones[positiveKey] || !copy.ziwei.sihuaTones[cautionKey]) return null;
+  return { positiveKey, positiveFocus, cautionKey, cautionFocus };
+}
+
+function ziweiPalaceDomain(copy, palaceName) {
+  return copy.ziwei.palaceDomains[palaceName] || palaceName || "";
+}
+
+function ziweiSihuaTone(copy, sihuaKey) {
+  return copy.ziwei.sihuaTones[sihuaKey] || sihuaKey || "";
+}
+
+function normalizeWorkContext(context) {
+  return {
+    taskCount: numberOrZero(context?.taskCount),
+    totalMinutes: numberOrZero(context?.totalMinutes),
+    longestMinutes: numberOrZero(context?.longestMinutes),
+    crossDayCount: numberOrZero(context?.crossDayCount),
+    continuationCount: numberOrZero(context?.continuationCount),
+    lateTaskCount: numberOrZero(context?.lateTaskCount),
+    active: Boolean(context?.active),
+    topTag: String(context?.topTag || "").trim(),
+  };
+}
+
+function buildWorkContextText(copy, context, seed, slot, language) {
+  const signalKey = workSignalKey(context);
+  const signal = copy.workSignals?.[signalKey]?.[slot];
+  const template = pickSeeded(signal || [], `${seed}:work:${slot}:${signalKey}`);
+  if (!template) return "";
+  return fillTemplate(template, {
+    duration: formatContextDuration(context.totalMinutes, language),
+    tasks: String(context.taskCount),
+    tag: context.topTag || "main",
+  });
+}
+
+function workSignalKey(context) {
+  if (context.active) return "active";
+  if (context.crossDayCount > 0 || context.continuationCount > 0) return "crossDay";
+  if (context.lateTaskCount > 0) return "late";
+  if (context.totalMinutes >= 420) return "heavy";
+  if (context.taskCount >= 4) return "fragmented";
+  if (context.totalMinutes >= 120 && context.longestMinutes >= context.totalMinutes * 0.6) return "focused";
+  if (context.topTag) return "tagged";
+  if (context.totalMinutes > 0) return "light";
+  return "empty";
+}
+
+function formatContextDuration(minutes, language) {
+  const safe = Math.max(0, Math.round(Number(minutes) || 0));
+  const hours = Math.floor(safe / 60);
+  const mins = safe % 60;
+  if (language === "ko") {
+    if (!hours) return `${mins}분`;
+    if (!mins) return `${hours}시간`;
+    return `${hours}시간 ${mins}분`;
+  }
+  if (!hours) return `${mins}m`;
+  if (!mins) return `${hours}h`;
+  return `${hours}h ${mins}m`;
+}
+
+function fortuneSeed(profile, dateKey, dayPillar, relation) {
+  return [
+    profile?.birthDate || "",
+    profile?.birthTime || "",
+    profile?.gender || "",
+    dateKey,
+    dayPillar,
+    relation?.type || "neutral",
+    relation?.detail || "",
+    relation?.natalPillar || "",
+  ].join("|");
+}
+
+function pickSeeded(values, seed) {
+  if (!values?.length) return null;
+  return values[(hashString(seed) + stringPositionSalt(seed)) % values.length];
+}
+
+function hashString(value) {
+  let hash = 2166136261;
+  for (const char of String(value)) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function stringPositionSalt(value) {
+  return Array.from(String(value)).reduce((sum, char, index) => sum + char.charCodeAt(0) * (index + 1), 0);
+}
+
+function fillTemplate(template, values) {
+  return String(template || "").replace(/\{(\w+)\}/g, (_, key) => values[key] ?? "");
+}
+
+function joinSentences(...parts) {
+  return parts.map((part) => String(part || "").trim()).filter(Boolean).join(" ");
+}
+
+function numberOrZero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
 }
 
 function normalizeLanguage(language) {

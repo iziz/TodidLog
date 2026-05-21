@@ -3,5 +3,10 @@ dist/
 .vite/
 .cache/
 *.log
+*.swp
 .DS_Store
 Thumbs.db
+.env
+.env.local
+.env.*.local
+secrets.local.js
