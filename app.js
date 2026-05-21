@@ -1,25 +1,44 @@
+import Dexie from "dexie";
+import { Editor } from "@tiptap/core";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
+import StarterKit from "@tiptap/starter-kit";
 import { computeDailyFortune, computeNatalSummary, resolveBirthplace, searchBirthplaces } from "./vendor/fortune-engine.js";
 
+const DATABASE_NAME = "todidlog";
 const STORAGE_KEY = "daily-work-log.sessions.v1";
 const GROUPS_KEY = "daily-work-log.groups.v1";
 const ACTIVE_KEY = "daily-work-log.active.v1";
 const FORTUNE_PROFILE_KEY = "daily-work-log.fortune-profile.v1";
+const ACTIVE_META_KEY = "active";
+const FORTUNE_PROFILE_META_KEY = "fortuneProfile";
+const LOCAL_STORAGE_MIGRATION_META_KEY = "localStorageMigration.v1";
 const LEGACY_DEFAULT_TITLE = "\uC791\uC5C5 \uAE30\uB85D";
 const LEGACY_MERGED_TITLE = "\uBCD1\uD569 \uC791\uC5C5";
 let fortuneRenderId = 0;
 let fortuneSettingsPreviewId = 0;
+let detailsEditor = null;
+let persistQueue = Promise.resolve();
+
+const db = new Dexie(DATABASE_NAME);
+db.version(1).stores({
+  sessions: "id,date,createdAt",
+  groups: "id,date,createdAt",
+  meta: "key",
+});
 
 const state = {
   selectedDate: toDateKey(new Date()),
   weekStart: startOfWeek(new Date()),
   monthCursor: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-  sessions: loadJson(STORAGE_KEY, []),
-  groups: loadJson(GROUPS_KEY, []),
-  active: loadJson(ACTIVE_KEY, null),
-  fortuneProfile: loadJson(FORTUNE_PROFILE_KEY, null),
+  sessions: [],
+  groups: [],
+  active: null,
+  fortuneProfile: null,
   selectedIds: new Set(),
   isCalendarOpen: false,
   calendarAnimating: false,
+  isFortuneDetailsOpen: false,
   modal: null,
 };
 
@@ -63,7 +82,8 @@ const els = {
   recordTitle: document.querySelector("#recordTitle"),
   recordTags: document.querySelector("#recordTags"),
   recordTagChips: document.querySelector("#recordTagChips"),
-  recordMemo: document.querySelector("#recordMemo"),
+  recordDetailsEditor: document.querySelector("#recordDetailsEditor"),
+  recordDetailsToolbar: document.querySelector("#recordDetailsToolbar"),
   modalError: document.querySelector("#modalError"),
   deleteRecordBtn: document.querySelector("#deleteRecordBtn"),
   closeModalBtn: document.querySelector("#closeModalBtn"),
@@ -82,9 +102,13 @@ const els = {
   deleteFortuneProfileBtn: document.querySelector("#deleteFortuneProfileBtn"),
 };
 
-init();
+init().catch((error) => {
+  console.error("Failed to initialize TodidLog.", error);
+});
 
-function init() {
+async function init() {
+  initDetailsEditor();
+  await loadStoredState();
   cleanupGroups();
   wireEvents();
   render();
@@ -127,8 +151,103 @@ function wireEvents() {
   els.deleteRecordBtn.addEventListener("click", deleteModalTarget);
   els.recordTags.addEventListener("keydown", handleTagInputKeydown);
   els.recordTags.addEventListener("blur", commitTagInput);
+  els.recordDetailsToolbar.addEventListener("click", handleDetailsToolbarClick);
   els.recordStart.addEventListener("blur", normalizeModalTimeInputs);
   els.recordEnd.addEventListener("blur", normalizeModalTimeInputs);
+}
+
+function initDetailsEditor() {
+  detailsEditor = new Editor({
+    element: els.recordDetailsEditor,
+    extensions: [
+      StarterKit.configure({
+        codeBlock: false,
+        heading: false,
+        horizontalRule: false,
+      }),
+      Link.configure({
+        autolink: true,
+        linkOnPaste: true,
+        openOnClick: false,
+        HTMLAttributes: {
+          rel: "noopener noreferrer",
+          target: "_blank",
+        },
+      }),
+      Placeholder.configure({
+        placeholder: "Task details",
+      }),
+    ],
+    content: "",
+    editorProps: {
+      attributes: {
+        class: "details-editor-content",
+        "aria-label": "Details",
+      },
+    },
+    onSelectionUpdate: updateDetailsToolbarState,
+    onTransaction: updateDetailsToolbarState,
+    onUpdate: updateDetailsToolbarState,
+  });
+  updateDetailsToolbarState();
+}
+
+function handleDetailsToolbarClick(event) {
+  const button = event.target.closest("[data-editor-command]");
+  if (!button || !detailsEditor) return;
+  const command = button.dataset.editorCommand;
+  const chain = detailsEditor.chain().focus();
+
+  if (command === "bold") chain.toggleBold().run();
+  if (command === "italic") chain.toggleItalic().run();
+  if (command === "bulletList") chain.toggleBulletList().run();
+  if (command === "orderedList") chain.toggleOrderedList().run();
+  if (command === "link") {
+    toggleDetailsLink();
+    return;
+  }
+
+  updateDetailsToolbarState();
+}
+
+function toggleDetailsLink() {
+  if (!detailsEditor) return;
+  const currentHref = detailsEditor.getAttributes("link").href || "";
+  const value = prompt("Enter link URL", currentHref);
+  if (value === null) return;
+
+  const href = normalizeDetailsLink(value);
+  if (!value.trim()) {
+    detailsEditor.chain().focus().extendMarkRange("link").unsetLink().run();
+    updateDetailsToolbarState();
+    return;
+  }
+
+  if (!href) {
+    els.modalError.textContent = "Enter a valid http, https, or mailto link.";
+    return;
+  }
+
+  els.modalError.textContent = "";
+  detailsEditor.chain().focus().extendMarkRange("link").setLink({ href }).run();
+  updateDetailsToolbarState();
+}
+
+function updateDetailsToolbarState() {
+  if (!els.recordDetailsToolbar || !detailsEditor) return;
+  const activeByCommand = {
+    bold: detailsEditor.isActive("bold"),
+    italic: detailsEditor.isActive("italic"),
+    bulletList: detailsEditor.isActive("bulletList"),
+    orderedList: detailsEditor.isActive("orderedList"),
+    link: detailsEditor.isActive("link"),
+  };
+
+  for (const button of els.recordDetailsToolbar.querySelectorAll("[data-editor-command]")) {
+    const isActive = Boolean(activeByCommand[button.dataset.editorCommand]);
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  }
 }
 
 function render() {
@@ -174,8 +293,11 @@ async function renderFortuneSummary() {
 function renderFortuneSummaryContent(fortune) {
   els.fortuneSummary.replaceChildren();
 
-  const titleRow = document.createElement("span");
+  const titleRow = document.createElement("div");
   titleRow.className = "fortune-summary-title-row";
+
+  const titleMeta = document.createElement("span");
+  titleMeta.className = "fortune-summary-title-meta";
 
   const title = document.createElement("span");
   title.className = "fortune-summary-title";
@@ -189,7 +311,11 @@ function renderFortuneSummaryContent(fortune) {
   date.className = "fortune-summary-date";
   date.textContent = formatFortuneSummaryDate(state.selectedDate, fortune.language);
 
-  titleRow.append(title, separator, date);
+  titleMeta.append(title, separator, date);
+  titleRow.append(titleMeta);
+
+  const copy = document.createElement("div");
+  copy.className = "fortune-summary-copy";
 
   const headline = document.createElement("strong");
   headline.className = "fortune-summary-headline";
@@ -199,8 +325,23 @@ function renderFortuneSummaryContent(fortune) {
   body.className = "fortune-summary-body";
   body.textContent = fortune.body;
 
+  const toggleRow = document.createElement("div");
+  toggleRow.className = "fortune-summary-toggle-row";
+
+  const toggle = document.createElement("button");
+  toggle.className = "fortune-summary-toggle";
+  toggle.type = "button";
+  toggle.setAttribute("aria-controls", "fortuneSummaryDetails");
+  toggle.addEventListener("click", () => {
+    state.isFortuneDetailsOpen = !state.isFortuneDetailsOpen;
+    updateFortuneDetailsToggle(toggle, details);
+  });
+
+  toggleRow.append(toggle);
+
   const details = document.createElement("span");
   details.className = "fortune-summary-details";
+  details.id = "fortuneSummaryDetails";
 
   for (const item of fortune.details || []) {
     const row = document.createElement("span");
@@ -218,7 +359,25 @@ function renderFortuneSummaryContent(fortune) {
     details.append(row);
   }
 
-  els.fortuneSummary.append(titleRow, headline, body, details);
+  updateFortuneDetailsToggle(toggle, details);
+
+  copy.append(headline, body, toggleRow, details);
+  els.fortuneSummary.append(titleRow, copy);
+}
+
+function updateFortuneDetailsToggle(toggle, details) {
+  const isOpen = state.isFortuneDetailsOpen;
+  const icon = document.createElement("span");
+  icon.className = "fortune-summary-toggle-icon";
+  icon.setAttribute("aria-hidden", "true");
+
+  const label = document.createElement("span");
+  label.textContent = isOpen ? "Hide" : "Details";
+
+  toggle.replaceChildren(icon, label);
+  toggle.classList.toggle("expanded", isOpen);
+  toggle.setAttribute("aria-expanded", String(isOpen));
+  details.hidden = !isOpen;
 }
 
 function formatFortuneSummaryDate(dateKey, language) {
@@ -378,7 +537,7 @@ function renderTaskCard(session, options) {
     <button class="task-check" type="button" aria-label="Select task">${selected ? "✓" : ""}</button>
       <div class="task-body">
         <div class="task-main">
-          <button class="card-icon" type="button" aria-label="Edit task">✎</button>
+          <button class="card-icon" type="button" aria-label="Edit task"><img src="./assets/task_title_icon.png" alt="" aria-hidden="true" /></button>
           <strong>${escapeHtml(taskTitleText(session.title))}</strong>
         </div>
         ${tagChipsHtml(session.tags || [])}
@@ -387,9 +546,19 @@ function renderTaskCard(session, options) {
     </div>
   `;
 
-  card.querySelector(".task-check").addEventListener("click", () => toggleSessionSelection(session.id));
-  card.querySelector(".card-icon").addEventListener("click", () => {
+  card.addEventListener("click", () => {
     if (!options.active) openSessionModal(session.id);
+  });
+  card.querySelector(".task-check").addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleSessionSelection(session.id);
+  });
+  card.querySelector(".card-icon").addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!options.active) openSessionModal(session.id);
+  });
+  card.querySelectorAll(".task-details a").forEach((link) => {
+    link.addEventListener("click", (event) => event.stopPropagation());
   });
   if (options.active) {
     card.querySelector(".task-check").disabled = true;
@@ -416,17 +585,27 @@ function renderGroupCard(group, sessions, options = {}) {
     <button class="task-check" type="button" aria-label="Select task">${selected ? "✓" : ""}</button>
       <div class="task-body">
         <div class="task-main">
-          <button class="card-icon" type="button" aria-label="Edit task">✎</button>
+          <button class="card-icon" type="button" aria-label="Edit task"><img src="./assets/task_title_icon.png" alt="" aria-hidden="true" /></button>
           <strong>${escapeHtml(mergedTaskTitle(group, sessions))}</strong>
         </div>
         ${tagChipsHtml(group.tags || [])}
-        <p>${escapeHtml(mergedTaskMemo(group, sessions))}</p>
+        ${taskDetailsHtml(mergedTaskMemo(group, sessions))}
         ${taskMetaHtml(taskMetaParts(start, end, minutes, options))}
     </div>
   `;
 
-  card.querySelector(".task-check").addEventListener("click", () => toggleGroupSelection(group.id));
-  card.querySelector(".card-icon").addEventListener("click", () => openExistingGroupModal(group.id));
+  card.addEventListener("click", () => openExistingGroupModal(group.id));
+  card.querySelector(".task-check").addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleGroupSelection(group.id);
+  });
+  card.querySelector(".card-icon").addEventListener("click", (event) => {
+    event.stopPropagation();
+    openExistingGroupModal(group.id);
+  });
+  card.querySelectorAll(".task-details a").forEach((link) => {
+    link.addEventListener("click", (event) => event.stopPropagation());
+  });
   return card;
 }
 
@@ -482,9 +661,20 @@ function updateCalendarPanelState() {
   els.prevCalendarBtn.setAttribute("aria-label", state.isCalendarOpen ? "Previous month" : "Previous week");
   els.nextCalendarBtn.setAttribute("aria-label", state.isCalendarOpen ? "Next month" : "Next week");
   els.calendarToggleBtn.setAttribute("aria-expanded", String(state.isCalendarOpen));
-  els.calendarToggleBtn.textContent = state.isCalendarOpen ? "Week View" : "Month View";
+  renderCalendarToggleButton();
   els.monthReportBtn.classList.toggle("hidden", !state.isCalendarOpen);
   updateCalendarWeekOffset();
+}
+
+function renderCalendarToggleButton() {
+  const label = document.createElement("span");
+  label.textContent = state.isCalendarOpen ? "Week" : "Month";
+
+  const icon = document.createElement("span");
+  icon.className = "calendar-toggle-icon";
+  icon.setAttribute("aria-hidden", "true");
+
+  els.calendarToggleBtn.replaceChildren(icon, label);
 }
 
 function withCalendarTransitionsDisabled(callback) {
@@ -591,11 +781,11 @@ function reportItemDetails(item) {
 }
 
 function indentReportMemo(memo) {
-  return String(memo)
+  return memoToPlainText(memo)
     .trim()
     .split(/\r?\n/)
     .filter(Boolean)
-    .map((line) => `  Memo: ${line}`);
+    .map((line) => `  Details: ${line}`);
 }
 
 async function writeClipboardText(text) {
@@ -812,6 +1002,7 @@ function ensureWeekSelectionForMonth() {
   const fallbackDate = fallbackWeekDateForMonth(state.monthCursor);
   state.selectedDate = toDateKey(fallbackDate);
   state.weekStart = startOfWeek(fallbackDate);
+  state.isFortuneDetailsOpen = false;
   clearSelection(false);
   return true;
 }
@@ -884,6 +1075,7 @@ function startTimer() {
   state.selectedDate = date;
   state.weekStart = startOfWeek(now);
   state.monthCursor = new Date(now.getFullYear(), now.getMonth(), 1);
+  state.isFortuneDetailsOpen = false;
   state.active = {
     date,
     start: toTimeValue(now),
@@ -935,7 +1127,7 @@ function openQuickModal() {
   setModalTimeEditor(start, start, true);
   els.recordTitle.value = "";
   setModalTags([]);
-  els.recordMemo.value = "";
+  setRecordDetails("");
   els.modalError.textContent = "";
   els.deleteRecordBtn.classList.add("hidden");
   rememberModalDraft();
@@ -951,7 +1143,7 @@ function openSessionModal(id) {
   setModalTimeEditor(session.start, session.end, true);
   els.recordTitle.value = session.title || "";
   setModalTags(session.tags || []);
-  els.recordMemo.value = session.memo || "";
+  setRecordDetails(session.memo || "");
   els.modalError.textContent = "";
   els.deleteRecordBtn.textContent = "Delete";
   els.deleteRecordBtn.classList.remove("hidden");
@@ -975,7 +1167,7 @@ function openGroupModal() {
   setModalTimeEditor(start, end, true);
   els.recordTitle.value = mergedTaskTitle(null, sessions);
   setModalTags(mergedTaskTags(sessions));
-  els.recordMemo.value = mergedTaskMemo(null, sessions);
+  setRecordDetails(mergedTaskMemo(null, sessions));
   els.modalError.textContent = "";
   els.deleteRecordBtn.classList.add("hidden");
   rememberModalDraft();
@@ -994,7 +1186,7 @@ function openExistingGroupModal(id) {
   setModalTimeEditor(start, end, true);
   els.recordTitle.value = mergedTaskTitle(group, sessions);
   setModalTags(mergedTaskTags(sessions, group));
-  els.recordMemo.value = mergedTaskMemo(group, sessions);
+  setRecordDetails(mergedTaskMemo(group, sessions));
   els.modalError.textContent = "";
   els.deleteRecordBtn.textContent = "Ungroup";
   els.deleteRecordBtn.classList.remove("hidden");
@@ -1009,7 +1201,7 @@ function saveModal(event) {
   const title = els.recordTitle.value.trim();
   commitTagInput();
   const tags = readModalTags();
-  const memo = els.recordMemo.value.trim();
+  const memo = readRecordDetails();
   const timeRange = readModalTimeRange();
 
   if (state.modal.type === "note") {
@@ -1183,8 +1375,102 @@ function readModalDraft() {
     end: els.recordEnd.value,
     title: els.recordTitle.value,
     tags: readModalTags().join(", "),
-    memo: els.recordMemo.value,
+    memo: readRecordDetails(),
   };
+}
+
+function setRecordDetails(value) {
+  if (!detailsEditor) return;
+  detailsEditor.commands.setContent(detailsToEditorContent(value || ""));
+  updateDetailsToolbarState();
+}
+
+function readRecordDetails() {
+  if (!detailsEditor) return "";
+  if (!detailsEditor.getText().trim()) return "";
+  return sanitizeDetailsHtml(detailsEditor.getHTML());
+}
+
+function detailsToEditorContent(value) {
+  const details = String(value || "").trim();
+  if (!details) return "";
+  if (isHtmlLike(details)) return sanitizeDetailsHtml(details);
+  return plainTextToDetailsHtml(details);
+}
+
+function plainTextToDetailsHtml(value) {
+  return String(value || "")
+    .split(/\n{2,}/)
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+function memoToPlainText(value) {
+  const details = String(value || "").trim();
+  if (!details) return "";
+  if (!isHtmlLike(details)) return details;
+  const template = document.createElement("template");
+  template.innerHTML = sanitizeDetailsHtml(details);
+  return (template.content.textContent || "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function isHtmlLike(value) {
+  return /<\/?[a-z][\s\S]*>/i.test(String(value || ""));
+}
+
+function sanitizeDetailsHtml(value) {
+  const template = document.createElement("template");
+  template.innerHTML = String(value || "");
+  const allowedTags = new Set(["P", "BR", "STRONG", "B", "EM", "I", "S", "UL", "OL", "LI", "BLOCKQUOTE", "CODE", "A"]);
+
+  const cleanNode = (node) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === Node.TEXT_NODE) continue;
+      if (child.nodeType !== Node.ELEMENT_NODE) {
+        child.remove();
+        continue;
+      }
+
+      cleanNode(child);
+      if (!allowedTags.has(child.tagName)) {
+        child.replaceWith(...Array.from(child.childNodes));
+        continue;
+      }
+
+      if (child.tagName === "A") {
+        const href = normalizeDetailsLink(child.getAttribute("href") || "");
+        if (!href) {
+          child.replaceWith(...Array.from(child.childNodes));
+          continue;
+        }
+
+        for (const attribute of Array.from(child.attributes)) child.removeAttribute(attribute.name);
+        child.setAttribute("href", href);
+        child.setAttribute("target", "_blank");
+        child.setAttribute("rel", "noopener noreferrer");
+        continue;
+      }
+
+      for (const attribute of Array.from(child.attributes)) child.removeAttribute(attribute.name);
+    }
+  };
+
+  cleanNode(template.content);
+  return template.innerHTML.trim();
+}
+
+function normalizeDetailsLink(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  const href = /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  try {
+    const url = new URL(href);
+    if (!["http:", "https:", "mailto:"].includes(url.protocol)) return "";
+    return href;
+  } catch {
+    return "";
+  }
 }
 
 function setModalTimeEditor(start, end, isVisible) {
@@ -1248,7 +1534,7 @@ function renderModalTagChips() {
     button.type = "button";
     button.className = "tag-chip";
     button.setAttribute("aria-label", `Remove ${tag} tag`);
-    button.innerHTML = `<span>${escapeHtml(tag)}</span><b aria-hidden="true">×</b>`;
+    button.innerHTML = `<span><img src="./assets/tag_icon.png" alt="" aria-hidden="true" />${escapeHtml(tag)}</span><b aria-hidden="true">×</b>`;
     button.addEventListener("click", () => removeModalTag(tag));
     els.recordTagChips.append(button);
   }
@@ -1345,6 +1631,7 @@ function selectDate(dateKey) {
   state.selectedDate = dateKey;
   state.weekStart = startOfWeek(parseDateKey(dateKey));
   state.monthCursor = new Date(parseDateKey(dateKey).getFullYear(), parseDateKey(dateKey).getMonth(), 1);
+  state.isFortuneDetailsOpen = false;
   clearSelection(false);
   render();
 }
@@ -1354,6 +1641,7 @@ function moveWeek(direction) {
   state.weekStart = nextWeekStart;
   state.selectedDate = toDateKey(nextWeekStart);
   state.monthCursor = new Date(nextWeekStart.getFullYear(), nextWeekStart.getMonth(), 1);
+  state.isFortuneDetailsOpen = false;
   clearSelection(false);
   render();
 }
@@ -1461,12 +1749,79 @@ function cleanupGroups() {
 }
 
 function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.sessions));
-  localStorage.setItem(GROUPS_KEY, JSON.stringify(state.groups));
-  if (state.fortuneProfile) localStorage.setItem(FORTUNE_PROFILE_KEY, JSON.stringify(state.fortuneProfile));
-  else localStorage.removeItem(FORTUNE_PROFILE_KEY);
-  if (state.active) localStorage.setItem(ACTIVE_KEY, JSON.stringify(state.active));
-  else localStorage.removeItem(ACTIVE_KEY);
+  const snapshot = {
+    sessions: structuredClone(state.sessions),
+    groups: structuredClone(state.groups),
+    active: state.active ? structuredClone(state.active) : null,
+    fortuneProfile: state.fortuneProfile ? structuredClone(state.fortuneProfile) : null,
+  };
+
+  persistQueue = persistQueue
+    .catch(() => {})
+    .then(() => persistSnapshot(snapshot))
+    .catch((error) => console.error("Failed to persist TodidLog state.", error));
+}
+
+async function loadStoredState() {
+  await migrateLocalStorageToIndexedDb();
+  const [sessions, groups, activeEntry, fortuneProfileEntry] = await Promise.all([
+    db.sessions.toArray(),
+    db.groups.toArray(),
+    db.meta.get(ACTIVE_META_KEY),
+    db.meta.get(FORTUNE_PROFILE_META_KEY),
+  ]);
+
+  state.sessions = sessions;
+  state.groups = groups;
+  state.active = activeEntry?.value || null;
+  state.fortuneProfile = fortuneProfileEntry?.value || null;
+}
+
+async function migrateLocalStorageToIndexedDb() {
+  const migration = await db.meta.get(LOCAL_STORAGE_MIGRATION_META_KEY);
+  if (migration?.value?.completedAt) return;
+
+  const sessions = loadJson(STORAGE_KEY, []);
+  const groups = loadJson(GROUPS_KEY, []);
+  const active = loadJson(ACTIVE_KEY, null);
+  const fortuneProfile = loadJson(FORTUNE_PROFILE_KEY, null);
+  const hasLocalData = sessions.length || groups.length || active || fortuneProfile;
+
+  await db.transaction("rw", db.sessions, db.groups, db.meta, async () => {
+    if (hasLocalData) {
+      const [sessionCount, groupCount] = await Promise.all([db.sessions.count(), db.groups.count()]);
+      if (!sessionCount && sessions.length) await db.sessions.bulkPut(sessions);
+      if (!groupCount && groups.length) await db.groups.bulkPut(groups);
+      if (active && !(await db.meta.get(ACTIVE_META_KEY))) await db.meta.put({ key: ACTIVE_META_KEY, value: active });
+      if (fortuneProfile && !(await db.meta.get(FORTUNE_PROFILE_META_KEY))) {
+        await db.meta.put({ key: FORTUNE_PROFILE_META_KEY, value: fortuneProfile });
+      }
+    }
+
+    await db.meta.put({
+      key: LOCAL_STORAGE_MIGRATION_META_KEY,
+      value: {
+        completedAt: new Date().toISOString(),
+        hadLocalData: Boolean(hasLocalData),
+      },
+    });
+  });
+}
+
+async function persistSnapshot(snapshot) {
+  await db.transaction("rw", db.sessions, db.groups, db.meta, async () => {
+    await db.sessions.clear();
+    if (snapshot.sessions.length) await db.sessions.bulkPut(snapshot.sessions);
+
+    await db.groups.clear();
+    if (snapshot.groups.length) await db.groups.bulkPut(snapshot.groups);
+
+    if (snapshot.active) await db.meta.put({ key: ACTIVE_META_KEY, value: snapshot.active });
+    else await db.meta.delete(ACTIVE_META_KEY);
+
+    if (snapshot.fortuneProfile) await db.meta.put({ key: FORTUNE_PROFILE_META_KEY, value: snapshot.fortuneProfile });
+    else await db.meta.delete(FORTUNE_PROFILE_META_KEY);
+  });
 }
 
 function loadJson(key, fallback) {
@@ -1566,7 +1921,7 @@ function mergedTaskMemo(group, sessions) {
   if (group?.memo) return group.memo;
   const parts = sessions.map((session) => {
     const title = taskTitleText(session.title);
-    const memo = (session.memo || "").trim();
+    const memo = memoToPlainText(session.memo || "").trim();
     return memo ? `${title}: ${memo}` : title;
   });
   return uniqueNonEmpty(parts).join(" / ") || "No details";
@@ -1659,7 +2014,10 @@ function taskAccentAlpha(includedMinutes, totalMinutes) {
 
 function itemOverlapsDate(item, ownerDate, dateKey) {
   const offset = dateOffsetMinutes(ownerDate, dateKey);
-  return overlapMinutes(offset + item.startMinute, offset + item.endMinute, 0, 1440) > 0;
+  const start = offset + item.startMinute;
+  const end = offset + item.endMinute;
+  if (end === start) return start >= 0 && start < 1440;
+  return overlapMinutes(start, end, 0, 1440) > 0;
 }
 
 function isSameDayItem(item) {
@@ -1739,13 +2097,19 @@ function taskMetaHtml(parts) {
 function taskMemoHtml(session) {
   const memo = String(session.memo || "").trim();
   if (!memo) return "";
-  return `<p>${escapeHtml(memo)}</p>`;
+  return taskDetailsHtml(memo);
+}
+
+function taskDetailsHtml(details) {
+  const value = String(details || "").trim();
+  if (!value) return "";
+  return `<div class="task-details">${detailsToEditorContent(value)}</div>`;
 }
 
 function tagChipsHtml(tags) {
   const values = uniqueNonEmpty(tags);
   if (!values.length) return "";
-  return `<div class="task-tags">${values.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>`;
+  return `<div class="task-tags">${values.map((tag) => `<span><img src="./assets/tag_icon.png" alt="" aria-hidden="true" />${escapeHtml(tag)}</span>`).join("")}</div>`;
 }
 
 function dotTextForDate(dateKey) {

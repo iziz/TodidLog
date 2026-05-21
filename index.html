@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>TodidLog</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=140" />
-    <link rel="stylesheet" href="./styles.css?v=140" />
+    <link rel="manifest" href="./manifest.webmanifest?v=157" />
+    <link rel="stylesheet" href="./styles.css?v=157" />
   </head>
   <body>
     <main class="app-shell">
@@ -26,7 +26,7 @@
               <strong class="calendar-context-title" id="calendarContextTitle"></strong>
               <button class="icon-button calendar-arrow" id="nextCalendarBtn" type="button" aria-label="Next week">›</button>
             </div>
-            <button class="calendar-toggle" id="calendarToggleBtn" type="button" aria-expanded="false" aria-controls="monthInline">Month View</button>
+            <button class="calendar-toggle" id="calendarToggleBtn" type="button" aria-expanded="false" aria-controls="monthInline">Month</button>
           </div>
           <div class="calendar-body" id="calendarBody">
             <div class="calendar-weekdays" id="calendarWeekdays" aria-hidden="true">
@@ -45,7 +45,7 @@
             <button class="report-button hidden" id="monthReportBtn" type="button" aria-label="Copy monthly report">Report</button>
             <p class="context-total calendar-total"><span id="calendarTotalLabel">Week</span><strong id="calendarTotalValue">0m</strong></p>
           </div>
-          <p class="fortune-summary hidden" id="fortuneSummary"></p>
+          <div class="fortune-summary hidden" id="fortuneSummary"></div>
         </section>
 
         <section class="timer-card" aria-label="Timer">
@@ -113,10 +113,19 @@
           <input id="recordTags" type="text" placeholder="Type a tag and press Enter" />
           <div class="tag-chip-list" id="recordTagChips" aria-label="Tag list"></div>
         </div>
-        <label>
-          Memo
-          <textarea id="recordMemo" rows="4" placeholder="Notes"></textarea>
-        </label>
+        <div class="field-block details-field">
+          <label id="recordDetailsLabel">Details</label>
+          <div class="details-editor-shell">
+            <div class="details-editor-toolbar" id="recordDetailsToolbar" aria-label="Details formatting">
+              <button class="editor-tool" type="button" data-editor-command="bold" aria-label="Bold" title="Bold"><b>B</b></button>
+              <button class="editor-tool" type="button" data-editor-command="italic" aria-label="Italic" title="Italic"><i>I</i></button>
+              <button class="editor-tool" type="button" data-editor-command="link" aria-label="Link" title="Link">Link</button>
+              <button class="editor-tool" type="button" data-editor-command="bulletList" aria-label="Bullet list" title="Bullet list">•</button>
+              <button class="editor-tool" type="button" data-editor-command="orderedList" aria-label="Ordered list" title="Ordered list">1.</button>
+            </div>
+            <div class="record-details-editor" id="recordDetailsEditor" role="textbox" aria-labelledby="recordDetailsLabel"></div>
+          </div>
+        </div>
         <p class="form-error" id="modalError" role="alert"></p>
         <div class="modal-actions">
           <button class="button danger hidden" id="deleteRecordBtn" type="button">Delete</button>
@@ -177,6 +186,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=140" type="module"></script>
+    <script src="./vendor/app.js?v=157" type="module"></script>
   </body>
 </html>

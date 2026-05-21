@@ -5,7 +5,8 @@
   "description": "A local PWA for timer-based work logging.",
   "type": "module",
   "scripts": {
-    "build": "npm run build:css && npm run build:fortune",
+    "build": "npm run build:css && npm run build:fortune && npm run build:app",
+    "build:app": "esbuild ./app.js --bundle --format=esm --outfile=./vendor/app.js --minify",
     "build:css": "tailwindcss -i ./src/styles.css -o ./styles.css --minify",
     "build:fortune": "esbuild ./src/fortune-engine.js --bundle --format=esm --outfile=./vendor/fortune-engine.js --minify",
     "watch:css": "tailwindcss -i ./src/styles.css -o ./styles.css --watch",
@@ -18,6 +19,11 @@
     "tailwindcss": "^4.3.0"
   },
   "dependencies": {
-    "@orrery/core": "^0.4.2"
+    "@orrery/core": "^0.4.2",
+    "@tiptap/core": "^3.23.5",
+    "@tiptap/extension-link": "^3.23.5",
+    "@tiptap/extension-placeholder": "^3.23.5",
+    "@tiptap/starter-kit": "^3.23.5",
+    "dexie": "^4.4.2"
   }
 }
