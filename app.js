@@ -12,18 +12,23 @@ const ACTIVE_KEY = "daily-work-log.active.v1";
 const FORTUNE_PROFILE_KEY = "daily-work-log.fortune-profile.v1";
 const ACTIVE_META_KEY = "active";
 const FORTUNE_PROFILE_META_KEY = "fortuneProfile";
+const FORTUNE_AI_CACHE_META_PREFIX = "fortuneAiDetails:v1:";
 const LOCAL_STORAGE_MIGRATION_META_KEY = "localStorageMigration.v1";
 const LEGACY_DEFAULT_TITLE = "\uC791\uC5C5 \uAE30\uB85D";
 const LEGACY_MERGED_TITLE = "\uBCD1\uD569 \uC791\uC5C5";
 const GEMINI_PROXY_URL = "/api/gemini/generate";
 const GEMINI_TIMEOUT_MS = 7000;
 const GEMINI_CACHE_LIMIT = 30;
+const GEMINI_DETAILS_CACHE_SCHEMA = "gemini-details-v2";
+const GEMINI_DETAILS_CACHE_MIGRATION_SCHEMAS = [GEMINI_DETAILS_CACHE_SCHEMA, "gemini-details-v1", "gemini"];
 let fortuneRenderId = 0;
 let fortuneSettingsPreviewId = 0;
+let fortuneClockRefreshKey = "";
 let detailsEditor = null;
 let persistQueue = Promise.resolve();
 const fortuneAiCache = new Map();
 let fortuneAiProxyDisabled = false;
+let fortuneAiLastErrorStatus = 0;
 
 const db = new Dexie(DATABASE_NAME);
 db.version(1).stores({
@@ -286,10 +291,10 @@ async function renderFortuneSummary() {
   try {
     const profile = normalizedFortuneProfile(state.fortuneProfile);
     const context = fortuneTaskContext(state.selectedDate);
-    const baseFortune = await computeDailyFortune(profile, state.selectedDate, context);
-    const fortune = await maybeRewriteFortuneWithGemini(baseFortune, profile, state.selectedDate, context);
+    if (state.selectedDate === toDateKey(new Date())) fortuneClockRefreshKey = fortuneClockKey(new Date());
+    const fortune = await computeDailyFortune(profile, state.selectedDate, context);
     if (renderId !== fortuneRenderId) return;
-    renderFortuneSummaryContent(fortune);
+    renderFortuneSummaryContent(fortune, profile, context, state.selectedDate);
     els.fortuneSummary.classList.remove("hidden");
   } catch {
     if (renderId !== fortuneRenderId) return;
@@ -338,7 +343,37 @@ function fortuneTaskContext(dateKey) {
     lateTaskCount,
     active: Boolean(activeItem),
     topTag: topTagFromCounts(tagCounts),
+    signalMinute: fortuneSignalMinute(dateKey, items, activeItem),
   };
+}
+
+function fortuneSignalMinute(dateKey, items, activeItem) {
+  const now = new Date();
+  if (dateKey === toDateKey(now)) return timeToMinutes(toTimeValue(now));
+
+  if (activeItem) return activeFortuneSignalMinute(dateKey);
+
+  const item = items
+    .filter((entry) => Number.isFinite(entry.includedMinutes) && entry.includedMinutes > 0)
+    .sort((a, b) => b.includedMinutes - a.includedMinutes || b.sortValue - a.sortValue)[0];
+  if (!item) return 12 * 60;
+
+  return timelineItemFortuneSignalMinute(item, dateKey);
+}
+
+function activeFortuneSignalMinute(dateKey) {
+  if (!state.active) return 12 * 60;
+  const offset = dateOffsetMinutes(state.active.date, dateKey);
+  const start = clamp(offset + timeToMinutes(state.active.start), 0, 1439);
+  const end = clamp(offset + activeEndMinute(), 0, 1440);
+  return clamp(Math.floor((start + Math.max(start, end)) / 2), 0, 1439);
+}
+
+function timelineItemFortuneSignalMinute(item, dateKey) {
+  const offset = dateOffsetMinutes(item.ownerDate, dateKey);
+  const start = clamp(offset + item.startMinute, 0, 1439);
+  const end = clamp(offset + item.endMinute, 0, 1440);
+  return clamp(Math.floor((start + Math.max(start, end)) / 2), 0, 1439);
 }
 
 function isLateTimelineItem(item, dateKey) {
@@ -353,26 +388,60 @@ function topTagFromCounts(tagCounts) {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || "";
 }
 
-async function maybeRewriteFortuneWithGemini(fortune, profile, dateKey, context) {
+async function loadFortuneDetailsWithGemini(fortune, profile, dateKey, context, options = {}) {
   const proxyUrl = geminiProxyUrl();
-  if (!proxyUrl || fortuneAiProxyDisabled) return fortune;
+  if (!proxyUrl) return [];
 
   const cacheKey = fortuneAiCacheKey(fortune, profile, dateKey, context, proxyUrl);
-  const cached = fortuneAiCache.get(cacheKey);
-  if (cached) return cached;
+  const cacheContext = { dateKey, profile, proxyUrl };
+  if (options.refresh) await clearFortuneDetailsCache(cacheKey, cacheContext);
 
-  const rewritePromise = rewriteFortuneWithGemini(fortune, profile, dateKey, context, proxyUrl)
+  const cached = fortuneAiCache.get(cacheKey);
+  if (!options.refresh && cached) return cached;
+
+  if (!options.refresh) await migrateStoredFortuneDetailsCache(cacheKey, cacheContext);
+
+  const stored = options.refresh ? [] : await readStoredFortuneDetails(cacheKey, cacheContext);
+  if (!options.refresh && stored.length > 0) {
+    fortuneAiLastErrorStatus = 0;
+    rememberFortuneAiCache(cacheKey, stored);
+    return stored;
+  }
+
+  if (fortuneAiProxyDisabled) return [];
+
+  const detailsPromise = generateFortuneDetailsWithGemini(fortune, profile, dateKey, context, proxyUrl)
+    .then(async (details) => {
+      fortuneAiLastErrorStatus = 0;
+      if (details.length > 0) {
+        await saveStoredFortuneDetails(cacheKey, details).catch((error) => {
+          console.warn("Failed to store Gemini fortune details.", error);
+        });
+      }
+      return details;
+    })
     .catch((error) => {
       fortuneAiCache.delete(cacheKey);
+      fortuneAiLastErrorStatus = Number(error?.status) || 0;
       if ([404, 503].includes(error?.status)) fortuneAiProxyDisabled = true;
       console.warn("Failed to rewrite fortune with Gemini.", error);
-      return fortune;
+      return [];
     });
-  rememberFortuneAiCache(cacheKey, rewritePromise);
+  rememberFortuneAiCache(cacheKey, detailsPromise);
 
-  const rewritten = await rewritePromise;
-  rememberFortuneAiCache(cacheKey, rewritten);
-  return rewritten;
+  const details = await detailsPromise;
+  rememberFortuneAiCache(cacheKey, details);
+  return details;
+}
+
+async function clearFortuneDetailsCache(cacheKey, cacheContext = {}) {
+  fortuneAiCache.delete(cacheKey);
+  try {
+    const keys = [persistentFortuneAiCacheKey(cacheKey), ...(await storedFortuneDetailsMigrationKeys(cacheKey, cacheContext))];
+    await db.meta.bulkDelete([...new Set(keys)]);
+  } catch (error) {
+    console.warn("Failed to clear stored Gemini fortune details.", error);
+  }
 }
 
 function geminiProxyUrl() {
@@ -382,7 +451,7 @@ function geminiProxyUrl() {
 
 function fortuneAiCacheKey(fortune, profile, dateKey, context, proxyUrl) {
   return [
-    "gemini",
+    GEMINI_DETAILS_CACHE_SCHEMA,
     dateKey,
     profile?.language || "en",
     hashString(proxyUrl),
@@ -397,23 +466,132 @@ function rememberFortuneAiCache(key, value) {
   fortuneAiCache.set(key, value);
 }
 
-async function rewriteFortuneWithGemini(fortune, profile, dateKey, context, proxyUrl) {
+async function readStoredFortuneDetails(cacheKey, cacheContext = {}) {
+  try {
+    const entry = await db.meta.get(persistentFortuneAiCacheKey(cacheKey));
+    return normalizeStoredFortuneDetails(entry?.value, cacheContext?.profile?.language);
+  } catch (error) {
+    console.warn("Failed to read stored Gemini fortune details.", error);
+    return [];
+  }
+}
+
+async function migrateStoredFortuneDetailsCache(cacheKey, cacheContext = {}) {
+  try {
+    const targetKey = persistentFortuneAiCacheKey(cacheKey);
+    const targetEntry = await db.meta.get(targetKey);
+    if (normalizeStoredFortuneDetails(targetEntry?.value, cacheContext?.profile?.language).length > 0) return;
+
+    const source = await findStoredFortuneDetailsMigrationSource(cacheKey, cacheContext);
+    if (!source) return;
+
+    const details = normalizeStoredFortuneDetails(source.value, cacheContext?.profile?.language);
+    const createdAt = source.value?.createdAt || new Date().toISOString();
+    await db.meta.put({
+      key: targetKey,
+      value: {
+        details,
+        createdAt,
+        migratedAt: new Date().toISOString(),
+        migratedFrom: source.key,
+      },
+    });
+    await db.meta.delete(source.key);
+  } catch (error) {
+    console.warn("Failed to migrate stored Gemini fortune details.", error);
+  }
+}
+
+async function findStoredFortuneDetailsMigrationSource(cacheKey, cacheContext = {}) {
+  const entries = await storedFortuneDetailsMigrationEntries(cacheKey, cacheContext);
+
+  return entries
+    .map((entry) => ({
+      entry,
+      details: normalizeStoredFortuneDetails(entry?.value, cacheContext?.profile?.language),
+    }))
+    .filter((item) => item.details.length > 0)
+    .sort((a, b) => String(b.entry.value?.createdAt || "").localeCompare(String(a.entry.value?.createdAt || "")))[0]?.entry;
+}
+
+async function storedFortuneDetailsMigrationKeys(cacheKey, cacheContext = {}) {
+  const entries = await storedFortuneDetailsMigrationEntries(cacheKey, cacheContext);
+  return entries.map((entry) => entry.key);
+}
+
+async function storedFortuneDetailsMigrationEntries(cacheKey, cacheContext = {}) {
+  const targetKey = persistentFortuneAiCacheKey(cacheKey);
+  const keyPrefixes = fortuneDetailsCacheMigrationPrefixes(cacheContext);
+  if (keyPrefixes.length === 0) return [];
+
+  return db.meta
+    .toArray()
+    .then((items) =>
+      items.filter((item) => {
+        const key = String(item.key || "");
+        return item.key !== targetKey && keyPrefixes.some((prefix) => key.startsWith(prefix));
+      }),
+    );
+}
+
+function fortuneDetailsCacheMigrationPrefixes({ dateKey, profile } = {}) {
+  if (!dateKey) return [];
+  const language = profile?.language || "en";
+  return GEMINI_DETAILS_CACHE_MIGRATION_SCHEMAS.map((schema) =>
+    `${FORTUNE_AI_CACHE_META_PREFIX}${[schema, dateKey, language, ""].join(":")}`,
+  );
+}
+
+async function saveStoredFortuneDetails(cacheKey, details) {
+  await db.meta.put({
+    key: persistentFortuneAiCacheKey(cacheKey),
+    value: {
+      details,
+      createdAt: new Date().toISOString(),
+    },
+  });
+  await pruneStoredFortuneDetails();
+}
+
+async function pruneStoredFortuneDetails() {
+  const entries = await db.meta
+    .toArray()
+    .then((items) => items.filter((item) => String(item.key || "").startsWith(FORTUNE_AI_CACHE_META_PREFIX)));
+
+  if (entries.length <= GEMINI_CACHE_LIMIT) return;
+
+  const staleKeys = entries
+    .sort((a, b) => String(b.value?.createdAt || "").localeCompare(String(a.value?.createdAt || "")))
+    .slice(GEMINI_CACHE_LIMIT)
+    .map((item) => item.key);
+
+  if (staleKeys.length > 0) await db.meta.bulkDelete(staleKeys);
+}
+
+function persistentFortuneAiCacheKey(cacheKey) {
+  return `${FORTUNE_AI_CACHE_META_PREFIX}${cacheKey}`;
+}
+
+async function generateFortuneDetailsWithGemini(fortune, profile, dateKey, context, proxyUrl) {
   const payload = await fetchGeminiJson(proxyUrl, geminiFortunePrompt(fortune, profile, dateKey, context));
-  return applyGeminiFortuneRewrite(fortune, payload);
+  return normalizeAiFortuneDetails(payload?.details);
 }
 
 function geminiFortunePrompt(fortune, profile, dateKey, context) {
   const languageName = profile?.language === "ko" ? "Korean" : "English";
   return [
-    "Rewrite this daily fortune copy for TodidLog, a compact local task timer app.",
+    "Write detail rows for TodidLog's daily fortune, a compact local task timer app.",
     `Output language: ${languageName}.`,
     "Keep the tone practical, concise, and natural. Avoid heavy mystical phrasing.",
-    "Do not add new facts, dates, birth details, task names, memos, URLs, or private information.",
-    "Do not mention Gemini, AI, API, astrology engines, Ziwei, or implementation details.",
-    "Do not repeat work-log phrases verbatim. Vary the wording when work context is present.",
+    "Use the reference signals as background context. Do not expose raw signal names, counters, birth details, task names, memos, URLs, or private information.",
+    "Do not mention Gemini, AI, API, astrology engines, Ziwei, Saju, pillars, relations, or implementation details.",
+    "Do not copy old detail wording or use fixed detail labels such as Flow, Action, or Care.",
+    "Generate the detail rows from the reference signals and work context. If the references are sparse, keep the details general and practical.",
+    "When adjacent dates have similar primary signals, use auxiliary signals to make the daily emphasis distinct.",
     "Return strict JSON only. Do not wrap it in markdown.",
     "Required JSON shape:",
-    '{"headlineTail":"short title after the day pillar","body":"one compact sentence","details":{"flow":"one sentence","action":"one sentence","care":"one sentence"}}',
+    '{"details":[{"label":"1-3 word label","text":"one useful sentence"}]}',
+    "Return exactly 3 detail rows. Each label must be natural for the output language and each text must be one sentence.",
     "Source data:",
     JSON.stringify(redactedFortuneInput(fortune, profile, dateKey, context), null, 2),
   ].join("\n");
@@ -425,11 +603,73 @@ function redactedFortuneInput(fortune, profile, dateKey, context) {
     language: profile?.language || "en",
     headline: redactFortuneText(fortune?.headline),
     body: redactFortuneText(fortune?.body),
-    details: (fortune?.details || []).map((item) => ({
-      label: redactFortuneText(item.label),
-      text: redactFortuneText(item.text),
-    })),
+    references: redactedFortuneReferences(fortune?.references),
     workContext: redactedFortuneTaskContext(context),
+  };
+}
+
+function redactedFortuneReferences(references = {}) {
+  return {
+    dayPillar: references.dayPillar || "",
+    hourPillar: references.hourPillar || "",
+    relationCount: Number(references.relationCount) || 0,
+    primarySignal: redactedFortuneSignal(references.primarySignal),
+    secondarySignal: redactedFortuneSignal(references.secondarySignal),
+    auxiliarySignal: redactedAuxiliarySignal(references.auxiliarySignal),
+    workSignal: {
+      type: references.workSignal?.type || "",
+      taskCount: Number(references.workSignal?.taskCount) || 0,
+      totalMinutes: Number(references.workSignal?.totalMinutes) || 0,
+      longestMinutes: Number(references.workSignal?.longestMinutes) || 0,
+      crossDayCount: Number(references.workSignal?.crossDayCount) || 0,
+      continuationCount: Number(references.workSignal?.continuationCount) || 0,
+      lateTaskCount: Number(references.workSignal?.lateTaskCount) || 0,
+      active: Boolean(references.workSignal?.active),
+      hasTopTag: Boolean(references.workSignal?.hasTopTag),
+    },
+    ziweiSignal: references.ziweiSignal
+      ? {
+          monthlyFocus: references.ziweiSignal.monthlyFocus || "",
+          longFocus: references.ziweiSignal.longFocus || "",
+          positiveFocus: references.ziweiSignal.positiveFocus || "",
+          positiveTone: references.ziweiSignal.positiveTone || "",
+          cautionFocus: references.ziweiSignal.cautionFocus || "",
+          cautionTone: references.ziweiSignal.cautionTone || "",
+          unknownTime: Boolean(references.ziweiSignal.unknownTime),
+        }
+      : null,
+  };
+}
+
+function redactedAuxiliarySignal(signal) {
+  if (!signal) return null;
+  return {
+    selectedFocus: signal.selectedFocus || "",
+    dayStemFocus: signal.dayStemRole?.focus || "",
+    branchStageFocus: signal.branchStage?.focus || "",
+    branchSpiritFocus: signal.branchSpirit?.focus || "",
+    hiddenStemFocus: signal.hiddenStemRole?.focus || "",
+    elementFocus: signal.elementFocus || "",
+    voidFocus: signal.voidFocus || "",
+    hourStemFocus: signal.hourStemRole?.focus || "",
+    hourBranchStageFocus: signal.hourBranchStage?.focus || "",
+    hourBranchSpiritFocus: signal.hourBranchSpirit?.focus || "",
+    hourElementFocus: signal.hourElementFocus || "",
+    dayStemElement: signal.dayStemElement || "",
+    dayBranchElement: signal.dayBranchElement || "",
+    hourStemElement: signal.hourStemElement || "",
+    hourBranchElement: signal.hourBranchElement || "",
+    voidBranch: Boolean(signal.voidBranch),
+  };
+}
+
+function redactedFortuneSignal(signal) {
+  if (!signal) return null;
+  return {
+    type: signal.type || "",
+    detail: signal.detail || "",
+    natalPillar: signal.natalPillar || "",
+    channel: signal.channel || "",
   };
 }
 
@@ -488,40 +728,50 @@ function parseGeminiJsonText(text) {
   return JSON.parse(cleaned);
 }
 
-function applyGeminiFortuneRewrite(fortune, rewrite) {
-  const headlineTail = normalizeAiFortuneText(rewrite?.headlineTail, 80);
-  const body = normalizeAiFortuneText(rewrite?.body, 180);
-  const detailInput = rewrite?.details || {};
-  const detailValues = {
-    flow: normalizeAiFortuneText(detailInput.flow || detailInput[0], 220),
-    action: normalizeAiFortuneText(detailInput.action || detailInput[1], 220),
-    care: normalizeAiFortuneText(detailInput.care || detailInput[2], 220),
-  };
-  const detailKeys = ["flow", "action", "care"];
-
-  return {
-    ...fortune,
-    headline: headlineTail ? `${fortuneDayPillarPrefix(fortune.headline)} · ${stripFortuneHeadlinePrefix(headlineTail)}` : fortune.headline,
-    body: body || fortune.body,
-    details: (fortune.details || []).map((item, index) => ({
-      ...item,
-      text: detailValues[detailKeys[index]] || item.text,
-    })),
-  };
-}
-
 function normalizeAiFortuneText(value, maxLength) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text || text.length > maxLength) return "";
   return text;
 }
 
-function fortuneDayPillarPrefix(headline) {
-  return String(headline || "").split("·")[0].trim();
+function normalizeStoredFortuneDetails(value, language) {
+  const source = value?.details || value?.fortune?.details || value?.rewrite?.details || value;
+  const details = normalizeAiFortuneDetails(source);
+  if (details.length > 0) return details;
+  if (!source || typeof source !== "object" || Array.isArray(source)) return [];
+
+  const labels = fortuneStoredDetailLabels(language);
+  return normalizeAiFortuneDetails([
+    { label: labels.flow, text: source.flow || source[0] },
+    { label: labels.action, text: source.action || source[1] },
+    { label: labels.care, text: source.care || source[2] },
+  ]);
 }
 
-function stripFortuneHeadlinePrefix(value) {
-  return String(value || "").replace(/^[^·]{1,16}·\s*/, "").trim();
+function fortuneStoredDetailLabels(language) {
+  if (language === "ko") {
+    return {
+      flow: "흐름",
+      action: "실행",
+      care: "주의",
+    };
+  }
+  return {
+    flow: "Flow",
+    action: "Action",
+    care: "Care",
+  };
+}
+
+function normalizeAiFortuneDetails(value) {
+  const items = Array.isArray(value) ? value : [];
+  return items
+    .map((item) => ({
+      label: normalizeAiFortuneText(item?.label, 24),
+      text: normalizeAiFortuneText(item?.text, 220),
+    }))
+    .filter((item) => item.label && item.text)
+    .slice(0, 3);
 }
 
 function hashString(value) {
@@ -533,7 +783,7 @@ function hashString(value) {
   return (hash >>> 0).toString(36);
 }
 
-function renderFortuneSummaryContent(fortune) {
+function renderFortuneSummaryContent(fortune, profile, context, dateKey) {
   els.fortuneSummary.replaceChildren();
 
   const titleRow = document.createElement("div");
@@ -559,6 +809,9 @@ function renderFortuneSummaryContent(fortune) {
 
   const copy = document.createElement("div");
   copy.className = "fortune-summary-copy";
+  const detailItems = (fortune.details || []).filter((item) => item?.label && item?.text);
+  const canLoadDetails = Boolean(fortune.references);
+  copy.classList.toggle("has-details", canLoadDetails || detailItems.length > 0);
 
   const headline = document.createElement("strong");
   headline.className = "fortune-summary-headline";
@@ -568,25 +821,77 @@ function renderFortuneSummaryContent(fortune) {
   body.className = "fortune-summary-body";
   body.textContent = fortune.body;
 
-  const toggleRow = document.createElement("div");
-  toggleRow.className = "fortune-summary-toggle-row";
+  copy.append(headline, body);
 
-  const toggle = document.createElement("button");
-  toggle.className = "fortune-summary-toggle";
-  toggle.type = "button";
-  toggle.setAttribute("aria-controls", "fortuneSummaryDetails");
-  toggle.addEventListener("click", () => {
-    state.isFortuneDetailsOpen = !state.isFortuneDetailsOpen;
+  if (canLoadDetails || detailItems.length > 0) {
+    const toggleRow = document.createElement("div");
+    toggleRow.className = "fortune-summary-toggle-row";
+
+    const toggle = document.createElement("button");
+    toggle.className = "fortune-summary-toggle";
+    toggle.type = "button";
+    toggle.setAttribute("aria-controls", "fortuneSummaryDetails");
+    toggle.addEventListener("click", () => {
+      handleFortuneDetailsToggle({
+        toggle,
+        details,
+        fortune,
+        profile,
+        context,
+        dateKey,
+      });
+    });
+
+    toggleRow.append(toggle);
+
+    const details = document.createElement("span");
+    details.className = "fortune-summary-details";
+    details.id = "fortuneSummaryDetails";
+    details.dataset.language = fortune.language;
+
+    renderFortuneDetailItems(details, detailItems);
+    renderFortuneDetailsRefresh(details, { toggle, fortune, profile, context, dateKey });
+
     updateFortuneDetailsToggle(toggle, details);
-  });
+    copy.append(toggleRow, details);
+  }
 
-  toggleRow.append(toggle);
+  els.fortuneSummary.append(titleRow, copy);
+}
 
-  const details = document.createElement("span");
-  details.className = "fortune-summary-details";
-  details.id = "fortuneSummaryDetails";
+async function handleFortuneDetailsToggle({ toggle, details, fortune, profile, context, dateKey }) {
+  state.isFortuneDetailsOpen = !state.isFortuneDetailsOpen;
+  updateFortuneDetailsToggle(toggle, details);
 
-  for (const item of fortune.details || []) {
+  if (!state.isFortuneDetailsOpen || details.dataset.loaded === "true" || details.dataset.loading === "true") return;
+
+  details.dataset.loading = "true";
+  toggle.disabled = true;
+  renderFortuneDetailsMessage(details, fortune.language, "loading");
+
+  const detailItems = await loadFortuneDetailsWithGemini(fortune, profile, dateKey, context);
+  if (dateKey !== state.selectedDate) return;
+
+  if (detailItems.length > 0) {
+    renderFortuneDetailItems(details, detailItems);
+    renderFortuneDetailsRefresh(details, { toggle, fortune, profile, context, dateKey });
+    details.dataset.loaded = "true";
+  } else {
+    renderFortuneDetailsMessage(details, fortune.language, fortuneDetailsUnavailableStatus());
+    renderFortuneDetailsRefresh(details, { toggle, fortune, profile, context, dateKey });
+    details.dataset.loaded = "true";
+  }
+
+  details.dataset.loading = "false";
+  toggle.disabled = false;
+  updateFortuneDetailsToggle(toggle, details);
+}
+
+function renderFortuneDetailItems(details, items) {
+  const action = details.querySelector(".fortune-summary-detail-actions");
+  details.replaceChildren();
+
+  for (const item of items) {
     const row = document.createElement("span");
     row.className = "fortune-summary-detail";
 
@@ -602,10 +907,90 @@ function renderFortuneSummaryContent(fortune) {
     details.append(row);
   }
 
-  updateFortuneDetailsToggle(toggle, details);
+  if (action) details.append(action);
+}
 
-  copy.append(headline, body, toggleRow, details);
-  els.fortuneSummary.append(titleRow, copy);
+function renderFortuneDetailsMessage(details, language, status) {
+  const action = details.querySelector(".fortune-summary-detail-actions");
+  const row = document.createElement("span");
+  row.className = "fortune-summary-detail-message";
+  if (["loading", "refreshing"].includes(status)) {
+    const spinner = document.createElement("span");
+    spinner.className = "fortune-summary-detail-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+
+    const text = document.createElement("span");
+    text.textContent = fortuneDetailsStatusText(language, status);
+
+    row.append(spinner, text);
+  } else {
+    row.textContent = fortuneDetailsStatusText(language, status);
+  }
+  details.replaceChildren(row);
+  if (action) details.append(action);
+}
+
+function renderFortuneDetailsRefresh(details, payload) {
+  const existing = details.querySelector(".fortune-summary-detail-actions");
+  if (existing) existing.remove();
+
+  if (!payload.fortune?.references || fortuneAiProxyDisabled) return;
+
+  const actions = document.createElement("span");
+  actions.className = "fortune-summary-detail-actions";
+
+  const button = document.createElement("button");
+  button.className = "fortune-summary-detail-refresh";
+  button.type = "button";
+  button.setAttribute("aria-label", payload.fortune.language === "ko" ? "상세 정보 새로 생성" : "Refresh details");
+  button.disabled = details.dataset.loading === "true";
+  button.addEventListener("click", () => refreshFortuneDetails({ ...payload, details, refreshButton: button }));
+
+  const icon = document.createElement("span");
+  icon.className = "fortune-summary-detail-refresh-icon";
+  icon.setAttribute("aria-hidden", "true");
+
+  button.append(icon);
+  actions.append(button);
+  details.append(actions);
+}
+
+async function refreshFortuneDetails({ toggle, details, fortune, profile, context, dateKey, refreshButton }) {
+  if (details.dataset.loading === "true") return;
+
+  details.dataset.loading = "true";
+  details.dataset.loaded = "false";
+  toggle.disabled = true;
+  refreshButton.disabled = true;
+  renderFortuneDetailsMessage(details, fortune.language, "refreshing");
+  renderFortuneDetailsRefresh(details, { toggle, fortune, profile, context, dateKey });
+
+  const detailItems = await loadFortuneDetailsWithGemini(fortune, profile, dateKey, context, { refresh: true });
+  if (dateKey !== state.selectedDate) return;
+
+  if (detailItems.length > 0) {
+    renderFortuneDetailItems(details, detailItems);
+    details.dataset.loaded = "true";
+  } else {
+    renderFortuneDetailsMessage(details, fortune.language, fortuneDetailsUnavailableStatus());
+    details.dataset.loaded = "true";
+  }
+
+  renderFortuneDetailsRefresh(details, { toggle, fortune, profile, context, dateKey });
+  details.dataset.loading = "false";
+  toggle.disabled = false;
+  updateFortuneDetailsToggle(toggle, details);
+}
+
+function fortuneDetailsStatusText(language, status) {
+  if (status === "loading") return language === "ko" ? "세부 흐름을 불러오는 중입니다." : "Loading details.";
+  if (status === "refreshing") return language === "ko" ? "세부 흐름을 새로 생성하는 중입니다." : "Refreshing details.";
+  if (status === "quota") return language === "ko" ? "Gemini 사용 한도에 도달했습니다. 캐시된 상세 정보가 없습니다." : "Gemini quota was reached and no cached details are available.";
+  return language === "ko" ? "세부 흐름을 불러오지 못했습니다." : "Details are unavailable.";
+}
+
+function fortuneDetailsUnavailableStatus() {
+  return fortuneAiLastErrorStatus === 429 ? "quota" : "unavailable";
 }
 
 function updateFortuneDetailsToggle(toggle, details) {
@@ -943,21 +1328,31 @@ function withCalendarTransitionsDisabled(callback) {
 
 async function copyMonthReport() {
   const report = buildMonthReport();
-  const originalText = els.monthReportBtn.textContent;
+  const label = els.monthReportBtn.querySelector(".report-button-label");
+  const originalText = label?.textContent || "Report";
   els.monthReportBtn.disabled = true;
 
   try {
     await writeClipboardText(report);
-    els.monthReportBtn.textContent = "Copied";
+    setMonthReportButtonLabel("Copied");
   } catch (error) {
     console.error("Failed to copy monthly report.", error);
-    els.monthReportBtn.textContent = "Copy failed";
+    setMonthReportButtonLabel("Copy failed");
   } finally {
     window.setTimeout(() => {
-      els.monthReportBtn.textContent = originalText;
+      setMonthReportButtonLabel(originalText);
       els.monthReportBtn.disabled = false;
     }, 1200);
   }
+}
+
+function setMonthReportButtonLabel(text) {
+  const label = els.monthReportBtn.querySelector(".report-button-label");
+  if (label) {
+    label.textContent = text;
+    return;
+  }
+  els.monthReportBtn.textContent = text;
 }
 
 function buildMonthReport() {
@@ -1122,7 +1517,7 @@ async function renderFortuneSettingsNatalPreview() {
   els.fortuneNatalPreview.replaceChildren();
 
   const { profile, birthplaceText } = fortuneProfileFromSettingsForm();
-  if (!birthplaceText || validateFortuneProfile(profile, birthplaceText)) return;
+  if (validateFortuneProfile(profile, birthplaceText)) return;
 
   try {
     const summary = await computeNatalSummary(profile);
@@ -1141,26 +1536,26 @@ function renderFortuneSettingsNatalSummary(summary) {
   title.className = "fortune-natal-title";
   title.textContent = summary.title;
 
-  const details = document.createElement("span");
-  details.className = "fortune-summary-details";
+  const list = document.createElement("span");
+  list.className = "fortune-natal-list";
 
   for (const item of summary.items || []) {
     const row = document.createElement("span");
-    row.className = "fortune-summary-detail";
+    row.className = "fortune-natal-row";
 
     const label = document.createElement("span");
-    label.className = "fortune-summary-detail-label";
+    label.className = "fortune-natal-label";
     label.textContent = item.label;
 
     const text = document.createElement("span");
-    text.className = "fortune-summary-detail-text";
+    text.className = "fortune-natal-text";
     text.textContent = item.text;
 
     row.append(label, text);
-    details.append(row);
+    list.append(row);
   }
 
-  els.fortuneNatalPreview.replaceChildren(title, details);
+  els.fortuneNatalPreview.replaceChildren(title, list);
 }
 
 function fortuneProfileFromSettingsForm() {
@@ -1908,9 +2303,28 @@ function moveMonth(direction) {
 }
 
 function tickTimer() {
-  if (!state.active) return;
-  renderTimer();
-  renderTasks();
+  if (state.active) {
+    renderTimer();
+    renderTasks();
+  }
+  refreshFortuneForClockTick();
+}
+
+function refreshFortuneForClockTick() {
+  if (!state.fortuneProfile) return;
+  const now = new Date();
+  if (state.selectedDate !== toDateKey(now)) return;
+
+  const clockKey = fortuneClockKey(now);
+  if (clockKey === fortuneClockRefreshKey) return;
+
+  fortuneClockRefreshKey = clockKey;
+  state.isFortuneDetailsOpen = false;
+  renderFortuneSummary();
+}
+
+function fortuneClockKey(date) {
+  return `${toDateKey(date)}:${String(date.getHours()).padStart(2, "0")}`;
 }
 
 function validateSession(session) {

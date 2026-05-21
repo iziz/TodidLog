@@ -1,18 +1,46 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
+import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./env.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const env = loadEnv(rootDir);
-const host = env.HOST || "127.0.0.1";
+const host = env.HOST || "0.0.0.0";
 const port = Number(env.PORT || 5173);
 const geminiApiKey = env.TODIDLOG_GEMINI_API_KEY || env.GEMINI_API_KEY || "";
 const geminiTimeoutMs = Number(env.GEMINI_TIMEOUT_MS || 7000);
+const geminiMaxOutputTokens = Number(env.GEMINI_MAX_OUTPUT_TOKENS || 1024);
+const geminiThinkingBudget = Number(env.GEMINI_THINKING_BUDGET ?? 0);
 const geminiGenerateUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
 const maxJsonBytes = 64 * 1024;
 const maxPromptLength = 20000;
+const geminiDetailsSchema = {
+  type: "object",
+  properties: {
+    details: {
+      type: "array",
+      minItems: 3,
+      maxItems: 3,
+      items: {
+        type: "object",
+        properties: {
+          label: {
+            type: "string",
+            description: "A natural 1 to 3 word detail label.",
+          },
+          text: {
+            type: "string",
+            description: "One concise practical sentence.",
+          },
+        },
+        required: ["label", "text"],
+      },
+    },
+  },
+  required: ["details"],
+};
 
 const server = createServer(async (req, res) => {
   try {
@@ -26,13 +54,12 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     const status = Number(error.status) || 500;
     if (status >= 500) console.error("[server] Request failed.", { status, message: error.message });
-    sendJson(res, status, { error: status >= 500 ? "Internal server error." : error.message });
+    sendJson(res, status, { error: status >= 500 ? "Internal server error." : error.message }, error.headers || {});
   }
 });
 
 server.listen(port, host, () => {
-  const displayHost = host === "0.0.0.0" ? "localhost" : host;
-  console.log(`[server] TodidLog is running at http://${displayHost}:${port}`);
+  for (const url of serverUrls(host, port)) console.log(`[server] TodidLog is running at ${url}`);
   console.log(`[server] Gemini proxy is ${geminiApiKey ? "enabled" : "disabled: TODIDLOG_GEMINI_API_KEY is not configured"}.`);
 });
 
@@ -93,20 +120,34 @@ async function requestGemini(prompt) {
           },
         ],
         generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 512,
+          temperature: 0.45,
+          maxOutputTokens: geminiMaxOutputTokens,
           responseMimeType: "application/json",
+          responseSchema: geminiDetailsSchema,
+          thinkingConfig: Number.isFinite(geminiThinkingBudget) ? { thinkingBudget: geminiThinkingBudget } : undefined,
         },
       }),
     });
 
     if (!response.ok) {
-      console.warn("[server] Gemini upstream request failed.", { status: response.status });
-      throw httpError(502, "Gemini upstream request failed.");
+      const upstreamStatus = response.status;
+      const retryAfter = response.headers.get("retry-after");
+      console.warn("[server] Gemini upstream request failed.", { status: upstreamStatus });
+      throw httpError(
+        geminiProxyStatus(upstreamStatus),
+        geminiProxyErrorMessage(upstreamStatus),
+        retryAfter ? { "Retry-After": retryAfter } : {},
+      );
     }
 
     const data = await response.json();
-    const text = (data.candidates?.[0]?.content?.parts || []).map((part) => part.text || "").join("").trim();
+    const candidate = data.candidates?.[0];
+    if (candidate?.finishReason && candidate.finishReason !== "STOP") {
+      console.warn("[server] Gemini response did not finish cleanly.", { finishReason: candidate.finishReason });
+      throw httpError(502, "Gemini response was incomplete.");
+    }
+
+    const text = (candidate?.content?.parts || []).map((part) => part.text || "").join("").trim();
     if (!text) throw httpError(502, "Gemini returned an empty response.");
     return text;
   } finally {
@@ -207,8 +248,37 @@ function sendJson(res, status, body, headers = {}) {
   res.end(JSON.stringify(body));
 }
 
-function httpError(status, message) {
+function geminiProxyStatus(status) {
+  if (status === 429) return 429;
+  if (status === 401 || status === 403) return 502;
+  if (status >= 500) return 502;
+  return 502;
+}
+
+function geminiProxyErrorMessage(status) {
+  if (status === 429) return "Gemini quota or rate limit was reached.";
+  if (status === 401 || status === 403) return "Gemini API key was rejected.";
+  return "Gemini upstream request failed.";
+}
+
+function httpError(status, message, headers = {}) {
   const error = new Error(message);
   error.status = status;
+  error.headers = headers;
   return error;
+}
+
+function serverUrls(boundHost, boundPort) {
+  if (boundHost !== "0.0.0.0") return [`http://${boundHost}:${boundPort}`];
+
+  const urls = [`http://localhost:${boundPort}`];
+  for (const address of localIpv4Addresses()) urls.push(`http://${address}:${boundPort}`);
+  return urls;
+}
+
+function localIpv4Addresses() {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter((network) => network && network.family === "IPv4" && !network.internal)
+    .map((network) => network.address);
 }

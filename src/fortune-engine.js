@@ -1,5 +1,14 @@
 import { calculateSaju } from "@orrery/core/saju";
-import { analyzePillarRelations, getFourPillars } from "@orrery/core/pillars";
+import {
+  analyzePillarRelations,
+  getFourPillars,
+  getGongmang,
+  getJeonggi,
+  getRelation,
+  getTwelveMeteor,
+  getTwelveSpirit,
+} from "@orrery/core/pillars";
+import { BRANCH_ELEMENT, STEM_INFO } from "@orrery/core/constants";
 import { filterCities, formatCityName } from "@orrery/core/cities";
 import { ZODIAC_KO, calculateNatal } from "@orrery/core/natal";
 import { calculateLiunian, createChart } from "@orrery/core/ziwei";
@@ -39,11 +48,18 @@ const COPY = {
     natalTitle: "Natal summary",
     unknownTimeNote: "Birth time is unknown, so angles and houses are not shown.",
     natalLabels: {
+      saju: "Four pillars",
       place: "Place",
       angles: "Angles",
       planets: "Planets",
       aspect: "Aspect",
       note: "Note",
+    },
+    sajuPillars: {
+      year: "Y",
+      month: "M",
+      day: "D",
+      hour: "H",
     },
     planets: {
       Sun: "Sun",
@@ -111,6 +127,70 @@ const COPY = {
         化科: "credibility",
         化忌: "friction",
       },
+    },
+    auxiliary: {
+      tenGodHeadline: {
+        比肩: "Set your own baseline today",
+        劫財: "Separate roles before pressure spreads",
+        食神: "Ship the light first version",
+        傷官: "Refine the message before sending",
+        偏財: "Handle outside variables in small steps",
+        正財: "Tidy the practical boundaries",
+        偏官: "Put guardrails around pressure",
+        正官: "Confirm the rule before acting",
+        偏印: "Sort the unusual clue",
+        正印: "Lean on the stable reference",
+        本元: "Return to your own baseline",
+      },
+      tenGodFocus: {
+        比肩: "Keep ownership clear before matching someone else's pace.",
+        劫財: "Shared pressure can rise, so separate your role from the group current.",
+        食神: "Output comes easier when the first version stays light.",
+        傷官: "Expression and revision are sensitive; polish the wording before pushing it out.",
+        偏財: "External opportunities move quickly, so keep decisions small and concrete.",
+        正財: "Practical resources and deadlines benefit from tidy boundaries.",
+        偏官: "Pressure can sharpen action, but set a guardrail before committing.",
+        正官: "Standards and responsibility are emphasized; confirm the rule before execution.",
+        偏印: "Research and unusual clues help, but capture the conclusion before wandering.",
+        正印: "Support, documentation, and stable references are worth leaning on.",
+        本元: "Return to your own baseline before responding to outside signals.",
+      },
+      meteorFocus: {
+        長生: "Start the new thread small enough to keep it alive.",
+        沐浴: "Feedback and exposure are more visible, so clean up the surface first.",
+        冠帶: "Format and responsibility matter; check the submission standard.",
+        乾祿: "Capacity is usable when the task boundary is clear.",
+        帝旺: "Momentum is high, so avoid expanding beyond the useful scope.",
+        衰: "Reduce the load before adding another branch.",
+        病: "A small health check on the plan prevents drag later.",
+        死: "Close the old loop before treating the next thing as new.",
+        墓: "Archive, collect, and sort before making the final call.",
+        絶: "Reset the frame instead of patching every old assumption.",
+        胎: "Let the idea incubate before making it public.",
+        養: "Support and preparation matter more than speed.",
+      },
+      spiritFocus: {
+        劫殺: "Cut through the noisy part and protect the key decision.",
+        災殺: "Leave a small contingency before assuming the route is clear.",
+        天殺: "External constraints can shape the day, so avoid overpromising.",
+        地殺: "Movement and logistics need a clearer handoff.",
+        年殺: "Visibility is higher than usual, so keep the signal clean.",
+        月殺: "A recurring pattern is worth naming before it repeats.",
+        亡身: "Details can slip under speed, so check the trace before closing.",
+        將星: "Leadership energy is useful when the direction is explicit.",
+        攀鞍: "Use the support path instead of carrying everything alone.",
+        驛馬: "Movement is likely; capture decisions before switching context.",
+        六害: "Hidden mismatch can grow, so clarify assumptions early.",
+        華蓋: "Deep work and reflection fit better than broad exposure.",
+      },
+      elementFocus: {
+        tree: "Planning and growth signals are active, so write the next sequence.",
+        fire: "Communication and feedback signals are active, so make the key point visible.",
+        earth: "Stability and grounding signals are active, so check the base first.",
+        metal: "Decision and cleanup signals are active, so trim one loose option.",
+        water: "Research and synthesis signals are active, so decide where the search stops.",
+      },
+      gongmangFocus: "The branch is in a void pair, so leave extra room before treating the signal as final.",
     },
     neutralHeadline: "Steady progress works best",
     neutralBody: "Keep one clear priority and let consistency do the work.",
@@ -388,11 +468,18 @@ const COPY = {
     natalTitle: "출생 차트",
     unknownTimeNote: "출생 시간을 모르는 상태라 앵글과 하우스는 표시하지 않습니다.",
     natalLabels: {
+      saju: "사주",
       place: "장소",
       angles: "앵글",
       planets: "행성",
       aspect: "각도",
       note: "참고",
+    },
+    sajuPillars: {
+      year: "년",
+      month: "월",
+      day: "일",
+      hour: "시",
     },
     planets: {
       Sun: "태양",
@@ -460,6 +547,70 @@ const COPY = {
         化科: "검증과 신뢰",
         化忌: "마찰",
       },
+    },
+    auxiliary: {
+      tenGodHeadline: {
+        比肩: "내 기준을 세울 날",
+        劫財: "역할을 나눠야 할 날",
+        食神: "가볍게 산출할 날",
+        傷官: "표현을 다듬을 날",
+        偏財: "외부 변수를 작게 다룰 날",
+        正財: "기준과 리소스를 정돈할 날",
+        偏官: "압박에 안전선을 둘 날",
+        正官: "규칙을 먼저 확인할 날",
+        偏印: "낯선 단서를 정리할 날",
+        正印: "문서와 근거를 기대기 좋은 날",
+        本元: "내 기준점으로 돌아올 날",
+      },
+      tenGodFocus: {
+        比肩: "내 기준이 강해지는 흐름이라 외부 속도에 바로 맞추기보다 역할을 분명히 하세요.",
+        劫財: "공동 압박이 커질 수 있어 내 몫과 함께 처리할 몫을 나누는 편이 좋습니다.",
+        食神: "산출물을 가볍게 먼저 내놓을수록 흐름이 살아납니다.",
+        傷官: "표현과 수정 신호가 예민하니 문장이나 전달 방식을 한 번 다듬으세요.",
+        偏財: "외부 변수와 빠른 기회가 들어오기 쉬워 결정을 작고 구체적으로 두세요.",
+        正財: "마감, 비용, 실제 리소스처럼 손에 잡히는 기준을 정돈하세요.",
+        偏官: "압박이 행동을 빠르게 만들 수 있으니 약속 전 안전선을 먼저 두세요.",
+        正官: "기준과 책임이 강조되니 실행 전에 규칙을 확인하세요.",
+        偏印: "낯선 단서와 조사 흐름이 도움되지만 결론을 기록하고 넘어가세요.",
+        正印: "문서, 지원, 안정적인 근거를 기대기 좋은 흐름입니다.",
+        本元: "외부 신호에 반응하기 전에 내 기준점을 먼저 확인하세요.",
+      },
+      meteorFocus: {
+        長生: "새 흐름은 작게 시작할수록 오래 이어집니다.",
+        沐浴: "노출과 피드백이 민감해질 수 있어 겉으로 보이는 부분을 먼저 정리하세요.",
+        冠帶: "형식과 책임이 드러나는 날이라 제출 기준을 먼저 확인하세요.",
+        乾祿: "실행력은 충분하니 작업 경계를 분명히 두는 편이 좋습니다.",
+        帝旺: "탄력이 강해지는 만큼 쓸모 있는 범위 밖으로 커지지 않게 보세요.",
+        衰: "새 가지를 더하기 전에 이미 잡은 부하를 먼저 줄이세요.",
+        病: "계획의 약한 지점을 작게 점검하면 뒤의 지연을 줄일 수 있습니다.",
+        死: "새 흐름으로 보기 전에 오래 열린 고리부터 닫으세요.",
+        墓: "결정 전에 자료를 모으고 정리해두는 쪽이 유리합니다.",
+        絶: "오래된 전제를 계속 고치기보다 기준을 새로 잡는 편이 낫습니다.",
+        胎: "아이디어는 바로 공개하기보다 조금 더 준비시키는 흐름입니다.",
+        養: "속도보다 준비와 보강이 더 중요한 신호입니다.",
+      },
+      spiritFocus: {
+        劫殺: "소음이 큰 부분을 잘라내고 핵심 결정을 보호하세요.",
+        災殺: "길이 명확해 보여도 작은 예비안을 남겨두는 편이 좋습니다.",
+        天殺: "외부 제약이 하루를 흔들 수 있으니 과한 약속은 피하세요.",
+        地殺: "이동, 전달, 인계 흐름은 더 분명한 기준이 필요합니다.",
+        年殺: "노출도가 올라가는 흐름이라 보이는 신호를 깔끔하게 정리하세요.",
+        月殺: "반복되는 패턴은 다시 반복되기 전에 이름 붙여두세요.",
+        亡身: "속도 때문에 세부가 빠질 수 있으니 닫기 전에 흔적을 확인하세요.",
+        將星: "주도권은 방향이 분명할 때 도움이 됩니다.",
+        攀鞍: "혼자 들고 가기보다 도움받을 경로를 쓰는 편이 좋습니다.",
+        驛馬: "이동과 전환이 생기기 쉬우니 결정은 전환 전에 기록하세요.",
+        六害: "숨은 어긋남이 커지지 않게 초반에 전제를 확인하세요.",
+        華蓋: "넓은 노출보다 깊게 파고드는 작업이 더 잘 맞습니다.",
+      },
+      elementFocus: {
+        tree: "기획과 성장 신호가 살아 있으니 다음 순서를 글로 잡아보세요.",
+        fire: "소통과 피드백 신호가 살아 있으니 핵심을 먼저 보이게 하세요.",
+        earth: "안정과 기반 신호가 살아 있으니 바탕을 먼저 확인하세요.",
+        metal: "판단과 정리 신호가 살아 있으니 느슨한 선택지 하나를 덜어내세요.",
+        water: "조사와 종합 신호가 살아 있으니 탐색을 멈출 기준도 정하세요.",
+      },
+      gongmangFocus: "공망 지지에 닿아 있으니 이 신호를 최종 결론처럼 보기 전 여백을 남기세요.",
     },
     neutralHeadline: "차분한 진행이 잘 맞는 날",
     neutralBody: "우선순위 하나를 분명히 잡고 꾸준히 밀어붙이는 쪽이 좋습니다.",
@@ -740,19 +891,23 @@ export function computeDailyFortune(profile, dateKey, workContext = {}) {
   const birthInput = normalizeBirthInput(profile);
   const selectedDate = parseDateKey(dateKey);
   const context = normalizeWorkContext(workContext);
+  const signalMinute = normalizeSignalMinute(context.signalMinute);
   const natal = calculateSaju(birthInput);
   const todayPillars = getFourPillars(
     selectedDate.getFullYear(),
     selectedDate.getMonth() + 1,
     selectedDate.getDate(),
-    12,
-    0,
+    Math.floor(signalMinute / 60),
+    signalMinute % 60,
   );
   const dayPillar = todayPillars[2];
-  const relations = collectDailyRelations(dayPillar, natal.pillars.map((item) => item.pillar.ganzi));
+  const hourPillar = todayPillars[3];
+  const natalPillars = natal.pillars.map((item, index) => (birthInput.unknownTime && index === 0 ? "" : item.pillar.ganzi));
+  const relations = collectDailyRelations(dayPillar, natalPillars);
   const primary = pickPrimaryRelation(relations);
   const secondary = pickSecondaryRelation(relations, primary);
-  const seed = fortuneSeed(profile, dateKey, dayPillar, primary);
+  const seed = fortuneSeed(profile, dateKey, dayPillar, hourPillar, primary, birthInput, natal);
+  const auxiliary = buildDailyAuxiliarySignal(copy, natal, dayPillar, hourPillar, seed);
   const ziwei = buildZiweiSignal(copy, birthInput, selectedDate, seed);
 
   if (!primary) {
@@ -762,9 +917,10 @@ export function computeDailyFortune(profile, dateKey, workContext = {}) {
     };
     return {
       title: copy.title,
-      headline: `${dayPillar} · ${neutral.headline}`,
-      body: neutral.body,
-      details: buildDetailItems(copy, null, { secondary, relationCount: relations.length, ziwei }, context, seed, language),
+      headline: `${dayPillar} · ${enrichFortuneHeadline(neutral.headline, auxiliary)}`,
+      body: enrichFortuneBody(neutral.body, auxiliary),
+      details: [],
+      references: buildFortuneReferences(copy, null, { dayPillar, hourPillar, secondary, relationCount: relations.length, ziwei, auxiliary }, context),
       language,
     };
   }
@@ -772,9 +928,10 @@ export function computeDailyFortune(profile, dateKey, workContext = {}) {
   const { headline, body } = relationCopy(copy, primary, seed);
   return {
     title: copy.title,
-    headline: `${dayPillar} · ${headline}`,
-    body,
-    details: buildDetailItems(copy, primary, { secondary, relationCount: relations.length, ziwei }, context, seed, language),
+    headline: `${dayPillar} · ${enrichFortuneHeadline(headline, auxiliary)}`,
+    body: enrichFortuneBody(body, auxiliary),
+    details: [],
+    references: buildFortuneReferences(copy, primary, { dayPillar, hourPillar, secondary, relationCount: relations.length, ziwei, auxiliary }, context),
     language,
   };
 }
@@ -815,80 +972,223 @@ function isElementRelation(relation) {
   return ["半合", "三合", "方合"].includes(relation?.type);
 }
 
-function buildDetailItems(copy, relation, signals, context, seed, language) {
-  const source =
-    (isElementRelation(relation) && copy.elementDetails[relation.detail]) ||
-    copy.relationDetails[relation?.type] ||
-    copy.neutralDetails;
-  const flow = joinSentences(source.flow, relation ? copy.pillarFocus?.[relation.natalPillar] : "", signals?.ziwei?.flow);
-  const action = joinSentences(source.action, buildWorkContextText(copy, context, seed, "detail", language), signals?.ziwei?.action);
-  const care = joinSentences(source.care, secondarySignalText(copy, signals?.secondary), signals?.ziwei?.care);
+function enrichFortuneHeadline(headline, auxiliary) {
+  return auxiliary?.dayStemRole?.headline || headline;
+}
 
-  return [
-    ["flow", flow],
-    ["action", action],
-    ["care", care],
-  ].map(([key, text]) => ({
-    label: copy.detailLabels[key],
-    text,
-  }));
+function enrichFortuneBody(body, auxiliary) {
+  return joinSentences(body, auxiliary?.selectedFocus || "");
+}
+
+function buildFortuneReferences(copy, relation, signals, context) {
+  return {
+    dayPillar: signals.dayPillar,
+    hourPillar: signals.hourPillar,
+    relationCount: signals.relationCount,
+    primarySignal: relationReference(copy, relation),
+    secondarySignal: relationReference(copy, signals.secondary),
+    auxiliarySignal: signals.auxiliary || null,
+    workSignal: {
+      type: workSignalKey(context),
+      taskCount: context.taskCount,
+      totalMinutes: context.totalMinutes,
+      longestMinutes: context.longestMinutes,
+      crossDayCount: context.crossDayCount,
+      continuationCount: context.continuationCount,
+      lateTaskCount: context.lateTaskCount,
+      active: context.active,
+      hasTopTag: Boolean(context.topTag),
+    },
+    ziweiSignal: signals.ziwei?.references || null,
+  };
+}
+
+function relationReference(copy, relation) {
+  if (!relation) return null;
+  return {
+    type: copy.relationNames?.[relation.type] || relation.type,
+    detail: relation.detail || "",
+    natalPillar: relation.natalPillar || "",
+    channel: relation.channel || "",
+  };
+}
+
+function buildDailyAuxiliarySignal(copy, natal, dayPillar, hourPillar, seed) {
+  const natalDayPillar = natal.pillars[1]?.pillar;
+  const natalYearPillar = natal.pillars[3]?.pillar;
+  const dayStem = dayPillar[0] || "";
+  const dayBranch = dayPillar[1] || "";
+  const hourStem = hourPillar?.[0] || "";
+  const hourBranch = hourPillar?.[1] || "";
+  const dayMaster = natalDayPillar?.stem || natalDayPillar?.ganzi?.[0] || "";
+  const yearBranch = natalYearPillar?.branch || natalYearPillar?.ganzi?.[1] || "";
+  const mainHiddenStem = safeSignal(() => getJeonggi(dayBranch));
+  const voidBranches = safeSignal(() => getGongmang(natalDayPillar?.ganzi || ""));
+  const dayStemRole = relationSignal(copy, safeSignal(() => getRelation(dayMaster, dayStem)?.hanja), "tenGodFocus");
+  const hiddenStemRole = relationSignal(copy, safeSignal(() => getRelation(dayMaster, mainHiddenStem)?.hanja), "tenGodFocus");
+  const branchStage = relationSignal(copy, safeSignal(() => getTwelveMeteor(dayMaster, dayBranch)), "meteorFocus");
+  const branchSpirit = relationSignal(copy, safeSignal(() => getTwelveSpirit(yearBranch, dayBranch)), "spiritFocus");
+  const hourStemRole = relationSignal(copy, safeSignal(() => getRelation(dayMaster, hourStem)?.hanja), "tenGodFocus");
+  const hourBranchStage = relationSignal(copy, safeSignal(() => getTwelveMeteor(dayMaster, hourBranch)), "meteorFocus");
+  const hourBranchSpirit = relationSignal(copy, safeSignal(() => getTwelveSpirit(yearBranch, hourBranch)), "spiritFocus");
+  const stemElement = STEM_INFO[dayStem]?.element || "";
+  const branchElement = BRANCH_ELEMENT[dayBranch] || "";
+  const hourStemElement = STEM_INFO[hourStem]?.element || "";
+  const hourBranchElement = BRANCH_ELEMENT[hourBranch] || "";
+  const elementFocus = copy.auxiliary?.elementFocus?.[branchElement] || copy.auxiliary?.elementFocus?.[stemElement] || "";
+  const hourElementFocus = copy.auxiliary?.elementFocus?.[hourBranchElement] || copy.auxiliary?.elementFocus?.[hourStemElement] || "";
+  const isVoidBranch = Array.isArray(voidBranches) && voidBranches.includes(dayBranch);
+  const selectedFocus = pickSeeded(
+    [
+      dayStemRole?.focus,
+      branchStage?.focus,
+      branchSpirit?.focus,
+      hiddenStemRole?.focus,
+      elementFocus,
+      hourStemRole?.focus,
+      hourBranchStage?.focus,
+      hourBranchSpirit?.focus,
+      hourElementFocus,
+      isVoidBranch ? copy.auxiliary?.gongmangFocus : "",
+    ].filter(Boolean),
+    `${seed}:auxiliary:focus`,
+  ) || "";
+
+  if (
+    !dayStemRole &&
+    !branchStage &&
+    !branchSpirit &&
+    !hiddenStemRole &&
+    !elementFocus &&
+    !hourStemRole &&
+    !hourBranchStage &&
+    !hourBranchSpirit &&
+    !hourElementFocus &&
+    !isVoidBranch
+  ) {
+    return null;
+  }
+
+  return {
+    selectedFocus,
+    dayStemRole,
+    branchStage,
+    branchSpirit,
+    hiddenStemRole,
+    elementFocus,
+    hourStemRole,
+    hourBranchStage,
+    hourBranchSpirit,
+    hourElementFocus,
+    dayStemElement: stemElement,
+    dayBranchElement: branchElement,
+    hourStemElement,
+    hourBranchElement,
+    voidBranch: isVoidBranch,
+    voidFocus: isVoidBranch ? copy.auxiliary?.gongmangFocus || "" : "",
+  };
+}
+
+function relationSignal(copy, key, focusGroup) {
+  if (!key) return null;
+  return {
+    key,
+    focus: copy.auxiliary?.[focusGroup]?.[key] || "",
+    headline: focusGroup === "tenGodFocus" ? copy.auxiliary?.tenGodHeadline?.[key] || "" : "",
+  };
+}
+
+function safeSignal(fn) {
+  try {
+    return fn() || "";
+  } catch {
+    return "";
+  }
 }
 
 async function buildNatalSummary(copy, birthInput, profile, language) {
   const birthplace = normalizeBirthplace(profile?.birthplace);
-  if (!birthplace) return null;
+  const items = [];
 
-  const natal = await calculateNatal(
-    {
-      ...birthInput,
-      latitude: birthplace.lat,
-      longitude: birthplace.lon,
-    },
-    "P",
-  );
-  const items = [
-    {
+  const sajuText = formatSajuPillars(copy, birthInput);
+  if (sajuText) {
+    items.push({
+      label: copy.natalLabels.saju,
+      text: sajuText,
+    });
+  }
+
+  if (birthplace) {
+    items.push({
       label: copy.natalLabels.place,
       text: birthplace.label,
-    },
-  ];
+    });
 
-  if (natal.angles) {
-    items.push({
-      label: copy.natalLabels.angles,
-      text: `ASC ${formatSign(natal.angles.asc.sign, language)} · MC ${formatSign(natal.angles.mc.sign, language)}`,
-    });
-  } else {
-    items.push({
-      label: copy.natalLabels.note,
-      text: copy.unknownTimeNote,
-    });
+    const natal = await calculateNatal(
+      {
+        ...birthInput,
+        latitude: birthplace.lat,
+        longitude: birthplace.lon,
+      },
+      "P",
+    );
+
+    if (natal.angles) {
+      items.push({
+        label: copy.natalLabels.angles,
+        text: `ASC ${formatSign(natal.angles.asc.sign, language)} · MC ${formatSign(natal.angles.mc.sign, language)}`,
+      });
+    } else {
+      items.push({
+        label: copy.natalLabels.note,
+        text: copy.unknownTimeNote,
+      });
+    }
+
+    const sun = findPlanet(natal, "Sun");
+    const moon = findPlanet(natal, "Moon");
+    const planetText = [formatPlanetPlacement(copy, sun, language), formatPlanetPlacement(copy, moon, language)]
+      .filter(Boolean)
+      .join(" · ");
+    if (planetText) {
+      items.push({
+        label: copy.natalLabels.planets,
+        text: planetText,
+      });
+    }
+
+    const strongestAspect = natal.aspects[0];
+    if (strongestAspect) {
+      items.push({
+        label: copy.natalLabels.aspect,
+        text: `${formatPlanetName(copy, strongestAspect.planet1)} ${copy.aspects[strongestAspect.type]} ${formatPlanetName(copy, strongestAspect.planet2)} (${strongestAspect.orb.toFixed(1)}°)`,
+      });
+    }
   }
 
-  const sun = findPlanet(natal, "Sun");
-  const moon = findPlanet(natal, "Moon");
-  const planetText = [formatPlanetPlacement(copy, sun, language), formatPlanetPlacement(copy, moon, language)]
-    .filter(Boolean)
-    .join(" · ");
-  if (planetText) {
-    items.push({
-      label: copy.natalLabels.planets,
-      text: planetText,
-    });
-  }
-
-  const strongestAspect = natal.aspects[0];
-  if (strongestAspect) {
-    items.push({
-      label: copy.natalLabels.aspect,
-      text: `${formatPlanetName(copy, strongestAspect.planet1)} ${copy.aspects[strongestAspect.type]} ${formatPlanetName(copy, strongestAspect.planet2)} (${strongestAspect.orb.toFixed(1)}°)`,
-    });
-  }
+  if (items.length === 0) return null;
 
   return {
     title: copy.natalTitle,
     items,
   };
+}
+
+function formatSajuPillars(copy, birthInput) {
+  const natal = calculateSaju(birthInput);
+  const pillars = natal.pillars || [];
+  const parts = [
+    formatSajuPillar(copy.sajuPillars.year, pillars[3]),
+    formatSajuPillar(copy.sajuPillars.month, pillars[2]),
+    formatSajuPillar(copy.sajuPillars.day, pillars[1]),
+  ];
+  if (!birthInput.unknownTime) parts.push(formatSajuPillar(copy.sajuPillars.hour, pillars[0]));
+  return parts.filter(Boolean).join(" · ");
+}
+
+function formatSajuPillar(label, item) {
+  const ganzi = item?.pillar?.ganzi || "";
+  return ganzi ? `${label} ${ganzi}` : "";
 }
 
 function findPlanet(natal, planetId) {
@@ -988,6 +1288,7 @@ function collectDailyRelations(dayPillar, natalPillars) {
   const relations = [];
 
   natalPillars.forEach((pillar, index) => {
+    if (!pillar) return;
     const result = analyzePillarRelations(dayPillar, pillar);
     for (const item of result.stem) {
       relations.push({
@@ -1039,37 +1340,67 @@ function isSameRelationFamily(a, b) {
   return a.type === b.type && a.detail === b.detail;
 }
 
-function secondarySignalText(copy, relation) {
-  if (!relation) return "";
-  const name = copy.relationNames?.[relation.type] || relation.type;
-  return fillTemplate(copy.secondarySignal, { relation: name });
-}
-
 function buildZiweiSignal(copy, birthInput, selectedDate, seed) {
+  if (birthInput.unknownTime) {
+    return {
+      flow: "",
+      action: "",
+      care: copy.ziwei.unknownTimeCare,
+      references: {
+        monthlyFocus: "",
+        longFocus: "",
+        positiveFocus: "",
+        positiveTone: "",
+        cautionFocus: "",
+        cautionTone: "",
+        unknownTime: true,
+      },
+    };
+  }
+
   try {
     const chart = createChart(birthInput.year, birthInput.month, birthInput.day, birthInput.hour, birthInput.minute, birthInput.gender === "M");
     const liunian = calculateLiunian(chart, selectedDate.getFullYear());
     const monthlyFocus = ziweiMonthlyFocus(liunian, selectedDate) || liunian.natalPalaceAtMing;
     const longFocus = liunian.daxianPalaceName || liunian.natalPalaceAtMing;
     const sihua = ziweiSihuaPair(copy, liunian, seed);
+    const monthlyFocusDomain = ziweiPalaceDomain(copy, monthlyFocus);
+    const longFocusDomain = ziweiPalaceDomain(copy, longFocus);
+    const positiveFocusDomain = sihua ? ziweiPalaceDomain(copy, sihua.positiveFocus) : "";
+    const cautionFocusDomain = sihua ? ziweiPalaceDomain(copy, sihua.cautionFocus) : "";
+    const positiveTone = sihua ? ziweiSihuaTone(copy, sihua.positiveKey) : "";
+    const cautionTone = sihua ? ziweiSihuaTone(copy, sihua.cautionKey) : "";
     const flow = monthlyFocus && longFocus
       ? fillTemplate(copy.ziwei.flow, {
-          monthlyFocus: ziweiPalaceDomain(copy, monthlyFocus),
-          longFocus: ziweiPalaceDomain(copy, longFocus),
+          monthlyFocus: monthlyFocusDomain,
+          longFocus: longFocusDomain,
         })
       : "";
     const action = sihua
       ? fillTemplate(copy.ziwei.action, {
-          positiveFocus: ziweiPalaceDomain(copy, sihua.positiveFocus),
-          positiveTone: ziweiSihuaTone(copy, sihua.positiveKey),
-          cautionFocus: ziweiPalaceDomain(copy, sihua.cautionFocus),
-          cautionTone: ziweiSihuaTone(copy, sihua.cautionKey),
+          positiveFocus: positiveFocusDomain,
+          positiveTone,
+          cautionFocus: cautionFocusDomain,
+          cautionTone,
         })
       : "";
     const care = joinSentences(copy.ziwei.care, birthInput.unknownTime ? copy.ziwei.unknownTimeCare : "");
 
     if (!flow && !action && !care) return null;
-    return { flow, action, care };
+    return {
+      flow,
+      action,
+      care,
+      references: {
+        monthlyFocus: monthlyFocusDomain,
+        longFocus: longFocusDomain,
+        positiveFocus: positiveFocusDomain,
+        positiveTone,
+        cautionFocus: cautionFocusDomain,
+        cautionTone,
+        unknownTime: birthInput.unknownTime,
+      },
+    };
   } catch {
     return null;
   }
@@ -1111,19 +1442,8 @@ function normalizeWorkContext(context) {
     lateTaskCount: numberOrZero(context?.lateTaskCount),
     active: Boolean(context?.active),
     topTag: String(context?.topTag || "").trim(),
+    signalMinute: normalizeSignalMinute(context?.signalMinute),
   };
-}
-
-function buildWorkContextText(copy, context, seed, slot, language) {
-  const signalKey = workSignalKey(context);
-  const signal = copy.workSignals?.[signalKey]?.[slot];
-  const template = pickSeeded(signal || [], `${seed}:work:${slot}:${signalKey}`);
-  if (!template) return "";
-  return fillTemplate(template, {
-    duration: formatContextDuration(context.totalMinutes, language),
-    tasks: String(context.taskCount),
-    tag: context.topTag || "main",
-  });
 }
 
 function workSignalKey(context) {
@@ -1138,27 +1458,17 @@ function workSignalKey(context) {
   return "empty";
 }
 
-function formatContextDuration(minutes, language) {
-  const safe = Math.max(0, Math.round(Number(minutes) || 0));
-  const hours = Math.floor(safe / 60);
-  const mins = safe % 60;
-  if (language === "ko") {
-    if (!hours) return `${mins}분`;
-    if (!mins) return `${hours}시간`;
-    return `${hours}시간 ${mins}분`;
-  }
-  if (!hours) return `${mins}m`;
-  if (!mins) return `${hours}h`;
-  return `${hours}h ${mins}m`;
-}
-
-function fortuneSeed(profile, dateKey, dayPillar, relation) {
+function fortuneSeed(profile, dateKey, dayPillar, hourPillar, relation, birthInput, natal) {
+  const natalPillarSeed = (natal?.pillars || [])
+    .map((item, index) => (birthInput?.unknownTime && index === 0 ? "" : item?.pillar?.ganzi || ""))
+    .join(",");
   return [
     profile?.birthDate || "",
-    profile?.birthTime || "",
+    birthInput?.unknownTime ? "unknown-time" : natalPillarSeed,
     profile?.gender || "",
     dateKey,
     dayPillar,
+    hourPillar || "",
     relation?.type || "neutral",
     relation?.detail || "",
     relation?.natalPillar || "",
@@ -1194,6 +1504,12 @@ function joinSentences(...parts) {
 function numberOrZero(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function normalizeSignalMinute(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 12 * 60;
+  return Math.max(0, Math.min(1439, Math.floor(number)));
 }
 
 function normalizeLanguage(language) {

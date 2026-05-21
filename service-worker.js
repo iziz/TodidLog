@@ -1,4 +1,4 @@
-const CACHE_NAME = "todidlog-v163";
+const CACHE_NAME = "todidlog-v178";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,8 @@ const ASSETS = [
   "./assets/add_list.png",
   "./assets/calendar_toggle.png",
   "./assets/fortune_details.png",
+  "./assets/refresh_icon.png",
+  "./assets/report_icon.png",
   "./assets/tag_icon.png",
   "./assets/task_title_icon.png",
   "./assets/timer_start.png",

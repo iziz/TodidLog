@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>TodidLog</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=160" />
-    <link rel="stylesheet" href="./styles.css?v=160" />
+    <link rel="manifest" href="./manifest.webmanifest?v=178" />
+    <link rel="stylesheet" href="./styles.css?v=178" />
   </head>
   <body>
     <main class="app-shell">
@@ -42,7 +42,10 @@
             </div>
           </div>
           <div class="calendar-footer">
-            <button class="report-button hidden" id="monthReportBtn" type="button" aria-label="Copy monthly report">Report</button>
+            <button class="report-button hidden" id="monthReportBtn" type="button" aria-label="Copy monthly report">
+              <span class="report-button-icon" aria-hidden="true"></span>
+              <span class="report-button-label">Report</span>
+            </button>
             <p class="context-total calendar-total"><span id="calendarTotalLabel">Week</span><strong id="calendarTotalValue">0m</strong></p>
           </div>
           <div class="fortune-summary hidden" id="fortuneSummary"></div>
@@ -177,7 +180,7 @@
           <input id="fortuneUnknownTime" type="checkbox" />
           Unknown time
         </label>
-        <div class="fortune-natal-summary fortune-settings-chart hidden" id="fortuneNatalPreview"></div>
+        <div class="fortune-settings-chart hidden" id="fortuneNatalPreview"></div>
         <p class="form-error" id="fortuneSettingsError" role="alert"></p>
         <div class="modal-actions">
           <button class="button danger hidden" id="deleteFortuneProfileBtn" type="button">Delete</button>
@@ -186,6 +189,6 @@
       </form>
     </dialog>
 
-    <script src="./vendor/app.js?v=162" type="module"></script>
+    <script src="./vendor/app.js?v=178" type="module"></script>
   </body>
 </html>
