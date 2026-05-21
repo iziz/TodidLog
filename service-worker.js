@@ -1,4 +1,4 @@
-const CACHE_NAME = "todidlog-v138";
+const CACHE_NAME = "todidlog-v140";
 const ASSETS = [
   "./",
   "./index.html",

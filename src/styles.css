@@ -197,12 +197,33 @@ h1 {
   text-align: left;
 }
 
+.fortune-summary-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  justify-content: flex-start;
+}
+
 .fortune-summary-title {
   color: var(--orange-strong);
   font-size: 10px;
   font-weight: 900;
   line-height: 1;
   text-transform: uppercase;
+}
+
+.fortune-summary-date {
+  color: #a3adb5;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.fortune-summary-separator {
+  color: #b5bdc4;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
 }
 
 .fortune-summary-headline {

@@ -174,9 +174,22 @@ async function renderFortuneSummary() {
 function renderFortuneSummaryContent(fortune) {
   els.fortuneSummary.replaceChildren();
 
+  const titleRow = document.createElement("span");
+  titleRow.className = "fortune-summary-title-row";
+
   const title = document.createElement("span");
   title.className = "fortune-summary-title";
   title.textContent = fortune.title;
+
+  const separator = document.createElement("span");
+  separator.className = "fortune-summary-separator";
+  separator.textContent = "·";
+
+  const date = document.createElement("span");
+  date.className = "fortune-summary-date";
+  date.textContent = formatFortuneSummaryDate(state.selectedDate, fortune.language);
+
+  titleRow.append(title, separator, date);
 
   const headline = document.createElement("strong");
   headline.className = "fortune-summary-headline";
@@ -205,7 +218,13 @@ function renderFortuneSummaryContent(fortune) {
     details.append(row);
   }
 
-  els.fortuneSummary.append(title, headline, body, details);
+  els.fortuneSummary.append(titleRow, headline, body, details);
+}
+
+function formatFortuneSummaryDate(dateKey, language) {
+  const date = parseDateKey(dateKey);
+  if (language === "ko") return `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}.`;
+  return date.toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function renderWeekStrip() {
