@@ -797,7 +797,7 @@ function renderFortuneSummaryContent(fortune, profile, context, dateKey) {
 
   const title = document.createElement("span");
   title.className = "fortune-summary-title";
-  title.textContent = fortune.title;
+  title.textContent = formatFortuneSummaryTitle(dateKey, fortune.language, fortune.title);
 
   const separator = document.createElement("span");
   separator.className = "fortune-summary-separator";
@@ -1038,6 +1038,11 @@ function formatFortuneSummaryDate(dateKey, language) {
   const date = parseDateKey(dateKey);
   if (language === "ko") return `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}.`;
   return date.toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatFortuneSummaryTitle(dateKey, language, fallbackTitle) {
+  if (language === "ko") return dateKey === toDateKey(new Date()) ? "오늘의 운세" : "그날의 운세";
+  return fallbackTitle || "Daily fortune";
 }
 
 function renderWeekStrip() {

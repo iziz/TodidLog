@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>TodidLog</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=197" />
-    <link rel="stylesheet" href="./styles.css?v=197" />
+    <link rel="manifest" href="./manifest.webmanifest?v=209" />
+    <link rel="stylesheet" href="./styles.css?v=209" />
   </head>
   <body>
     <main class="app-shell">
@@ -78,12 +78,14 @@
               <button class="selection-button danger-action hidden" id="deleteSelectedBtn" type="button" aria-label="Delete selected tasks">Delete</button>
             </div>
           </div>
-          <div class="task-list" id="taskList"></div>
+          <div class="task-timeline">
+            <button class="floating-add" id="openQuickModalBtn" type="button" aria-label="Add task">
+              <img src="https://cdn-icons-png.magnific.com/512/3914/3914248.png?ga=GA1.1.1425901958.1778341385" alt="" aria-hidden="true" />
+            </button>
+            <div class="task-list" id="taskList"></div>
+          </div>
           <p class="empty-message hidden" id="emptyMessage">No more tasks today!</p>
           <p class="context-total daily-total"><span>Today</span><strong id="dailyTotal">0m</strong></p>
-          <button class="floating-add" id="openQuickModalBtn" type="button" aria-label="Add task">
-            <img src="./assets/add_list.png" alt="" aria-hidden="true" />
-          </button>
         </section>
       </section>
 
@@ -189,6 +191,6 @@
       </form>
     </dialog>
 
-    <script src="./vendor/app.js?v=197" type="module"></script>
+    <script src="./vendor/app.js?v=209" type="module"></script>
   </body>
 </html>

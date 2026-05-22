@@ -1039,21 +1039,30 @@ label {
   background: #fecdca;
 }
 
+.task-timeline {
+  --task-rail-x: 31px;
+
+  position: relative;
+  margin-top: 18px;
+}
+
 .task-list {
   position: relative;
   display: grid;
   gap: 14px;
-  margin-top: 18px;
+  margin-top: 0;
+  padding-top: 38px;
   padding-left: 76px;
 }
 
 .task-list::before {
   display: none;
   position: absolute;
-  top: 14px;
+  top: 13px;
   bottom: 14px;
-  left: 31px;
+  left: var(--task-rail-x);
   width: 2px;
+  transform: translateX(-50%);
   border-radius: 999px;
   background: linear-gradient(
     to top,
@@ -1381,23 +1390,54 @@ label {
 }
 
 .floating-add {
+  position: absolute;
+  top: 0;
+  left: var(--task-rail-x);
+  z-index: 2;
   display: grid;
-  width: 32px;
-  height: 32px;
-  margin: 18px 0 0 15px;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  transform: translateX(-50%);
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: var(--orange);
-  color: #fff;
-  box-shadow: 0 10px 22px rgba(255, 159, 28, 0.24);
+  background: transparent;
+  color: var(--orange-strong);
+  box-shadow: none;
+}
+
+.floating-add::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: #fff;
+  content: "";
+}
+
+.floating-add:hover::before {
+  background: #fff7ec;
+}
+
+.floating-add:focus-visible {
+  outline: 2px solid rgba(255, 159, 28, 0.45);
+  outline-offset: 3px;
 }
 
 .floating-add img {
+  position: relative;
+  z-index: 1;
   display: block;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   object-fit: contain;
+  opacity: 0.86;
+  filter: invert(58%) sepia(80%) saturate(1246%) hue-rotate(348deg) brightness(103%) contrast(101%);
   pointer-events: none;
 }
 
