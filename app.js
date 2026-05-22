@@ -125,7 +125,10 @@ async function init() {
   setInterval(tickTimer, 1000);
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+    navigator.serviceWorker
+      .register("./service-worker.js")
+      .then((registration) => registration.update())
+      .catch(() => {});
   }
 }
 
@@ -843,6 +846,7 @@ function renderFortuneSummaryContent(fortune, profile, context, dateKey) {
     });
 
     toggleRow.append(toggle);
+    titleRow.append(toggleRow);
 
     const details = document.createElement("span");
     details.className = "fortune-summary-details";
@@ -853,7 +857,7 @@ function renderFortuneSummaryContent(fortune, profile, context, dateKey) {
     renderFortuneDetailsRefresh(details, { toggle, fortune, profile, context, dateKey });
 
     updateFortuneDetailsToggle(toggle, details);
-    copy.append(toggleRow, details);
+    copy.append(details);
   }
 
   els.fortuneSummary.append(titleRow, copy);
@@ -868,9 +872,13 @@ async function handleFortuneDetailsToggle({ toggle, details, fortune, profile, c
   details.dataset.loading = "true";
   toggle.disabled = true;
   renderFortuneDetailsMessage(details, fortune.language, "loading");
+  updateFortuneDetailsRefreshState(details);
 
   const detailItems = await loadFortuneDetailsWithGemini(fortune, profile, dateKey, context);
   if (dateKey !== state.selectedDate) return;
+
+  details.dataset.loading = "false";
+  toggle.disabled = false;
 
   if (detailItems.length > 0) {
     renderFortuneDetailItems(details, detailItems);
@@ -882,8 +890,6 @@ async function handleFortuneDetailsToggle({ toggle, details, fortune, profile, c
     details.dataset.loaded = "true";
   }
 
-  details.dataset.loading = "false";
-  toggle.disabled = false;
   updateFortuneDetailsToggle(toggle, details);
 }
 
@@ -931,7 +937,8 @@ function renderFortuneDetailsMessage(details, language, status) {
 }
 
 function renderFortuneDetailsRefresh(details, payload) {
-  const existing = details.querySelector(".fortune-summary-detail-actions");
+  const host = fortuneDetailsActionsHost(details);
+  const existing = host.querySelector(".fortune-summary-detail-actions") || details.querySelector(".fortune-summary-detail-actions");
   if (existing) existing.remove();
 
   if (!payload.fortune?.references || fortuneAiProxyDisabled) return;
@@ -950,9 +957,26 @@ function renderFortuneDetailsRefresh(details, payload) {
   icon.className = "fortune-summary-detail-refresh-icon";
   icon.setAttribute("aria-hidden", "true");
 
-  button.append(icon);
+  const label = document.createElement("span");
+  label.textContent = payload.fortune.language === "ko" ? "다시보기" : "Refresh";
+
+  button.append(icon, label);
   actions.append(button);
-  details.append(actions);
+  actions.hidden = !state.isFortuneDetailsOpen;
+  host.prepend(actions);
+}
+
+function fortuneDetailsActionsHost(details) {
+  return details.closest(".fortune-summary")?.querySelector(".fortune-summary-toggle-row") || details;
+}
+
+function updateFortuneDetailsRefreshState(details) {
+  const actions = fortuneDetailsActionsHost(details).querySelector(".fortune-summary-detail-actions");
+  if (!actions) return;
+
+  actions.hidden = details.hidden;
+  const button = actions.querySelector(".fortune-summary-detail-refresh");
+  if (button) button.disabled = details.dataset.loading === "true";
 }
 
 async function refreshFortuneDetails({ toggle, details, fortune, profile, context, dateKey, refreshButton }) {
@@ -968,6 +992,9 @@ async function refreshFortuneDetails({ toggle, details, fortune, profile, contex
   const detailItems = await loadFortuneDetailsWithGemini(fortune, profile, dateKey, context, { refresh: true });
   if (dateKey !== state.selectedDate) return;
 
+  details.dataset.loading = "false";
+  toggle.disabled = false;
+
   if (detailItems.length > 0) {
     renderFortuneDetailItems(details, detailItems);
     details.dataset.loaded = "true";
@@ -977,8 +1004,6 @@ async function refreshFortuneDetails({ toggle, details, fortune, profile, contex
   }
 
   renderFortuneDetailsRefresh(details, { toggle, fortune, profile, context, dateKey });
-  details.dataset.loading = "false";
-  toggle.disabled = false;
   updateFortuneDetailsToggle(toggle, details);
 }
 
@@ -1000,12 +1025,13 @@ function updateFortuneDetailsToggle(toggle, details) {
   icon.setAttribute("aria-hidden", "true");
 
   const label = document.createElement("span");
-  label.textContent = isOpen ? "Hide" : "Details";
+  label.textContent = details.dataset.language === "ko" ? (isOpen ? "접기" : "상세") : isOpen ? "Hide" : "Details";
 
   toggle.replaceChildren(icon, label);
   toggle.classList.toggle("expanded", isOpen);
   toggle.setAttribute("aria-expanded", String(isOpen));
   details.hidden = !isOpen;
+  updateFortuneDetailsRefreshState(details);
 }
 
 function formatFortuneSummaryDate(dateKey, language) {

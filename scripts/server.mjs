@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { networkInterfaces } from "node:os";
-import { dirname, extname, join, normalize, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./env.mjs";
 
@@ -183,7 +183,7 @@ function serveStatic(req, res) {
 
   res.writeHead(200, {
     "Content-Type": contentType(target),
-    "Cache-Control": target.endsWith("index.html") ? "no-cache" : "public, max-age=300",
+    "Cache-Control": cacheControl(target),
   });
 
   if (req.method === "HEAD") {
@@ -217,9 +217,20 @@ function contentType(filePath) {
     ".png": "image/png",
     ".svg": "image/svg+xml",
     ".webmanifest": "application/manifest+json; charset=utf-8",
+    ".woff": "font/woff",
   };
 
   return types[extname(filePath)] || "application/octet-stream";
+}
+
+function cacheControl(filePath) {
+  const ext = extname(filePath);
+  const name = basename(filePath);
+  if (name === "index.html" || name === "service-worker.js" || [".css", ".js", ".webmanifest"].includes(ext)) {
+    return "no-cache, max-age=0, must-revalidate";
+  }
+  if (ext === ".woff") return "public, max-age=31536000, immutable";
+  return "public, max-age=300";
 }
 
 async function readJson(req) {
