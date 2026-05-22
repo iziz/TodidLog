@@ -1,4 +1,4 @@
-const APP_VERSION = "209";
+const APP_VERSION = "211";
 const CACHE_NAME = `todidlog-v${APP_VERSION}`;
 const ASSETS = [
   "./",
@@ -42,6 +42,7 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/")) return;
 
   if (url.pathname === "/service-worker.js") {
     event.respondWith(fetch(new Request(event.request, { cache: "no-store" })));

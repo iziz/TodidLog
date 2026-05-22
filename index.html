@@ -5,18 +5,66 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>TodidLog</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=209" />
-    <link rel="stylesheet" href="./styles.css?v=209" />
+    <link rel="manifest" href="./manifest.webmanifest?v=211" />
+    <link rel="stylesheet" href="./styles.css?v=211" />
   </head>
   <body>
-    <main class="app-shell">
+    <section class="auth-shell" id="authShell" aria-label="Authentication">
+      <div class="auth-panel">
+        <div class="auth-brand">
+          <p class="section-kicker">TodidLog</p>
+          <h1>Sign in</h1>
+        </div>
+
+        <form class="auth-form" id="authLoginForm">
+          <label>
+            Username
+            <input id="authLoginUsername" type="text" autocomplete="username" minlength="3" maxlength="40" required />
+          </label>
+          <label>
+            Password
+            <input id="authLoginPassword" type="password" autocomplete="current-password" minlength="8" required />
+          </label>
+          <p class="form-error" id="authLoginError" role="alert"></p>
+          <button class="button primary" type="submit">Sign in</button>
+        </form>
+
+        <form class="auth-form" id="authRegisterForm" hidden>
+          <label>
+            Username
+            <input id="authRegisterUsername" type="text" autocomplete="username" minlength="3" maxlength="40" required />
+          </label>
+          <label>
+            Password
+            <input id="authRegisterPassword" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
+          <label id="authRegisterTokenBlock">
+            Registration token
+            <input id="authRegistrationToken" type="password" autocomplete="off" />
+          </label>
+          <p class="form-error" id="authRegisterError" role="alert"></p>
+          <button class="button primary" type="submit">Create account</button>
+        </form>
+
+        <div class="auth-switch">
+          <button class="today-link" id="authRegisterToggle" type="button">Create account</button>
+          <button class="today-link" id="authLoginToggle" type="button" hidden>Back to sign in</button>
+        </div>
+      </div>
+    </section>
+
+    <main class="app-shell" id="appShell" hidden>
       <section class="planner" aria-label="Work log">
         <header class="planner-header">
           <div class="header-date-block">
             <p class="date-label" id="selectedDateLabel"></p>
             <button class="today-link" id="goTodayBtn" type="button" aria-label="Go to today">Today</button>
           </div>
-          <button class="header-settings-button" id="openFortuneSettingsBtn" type="button" aria-label="Fortune settings">⚙</button>
+          <div class="header-actions">
+            <span class="auth-user-label" id="authUserLabel"></span>
+            <button class="today-link logout-button" id="logoutBtn" type="button">Logout</button>
+            <button class="header-settings-button" id="openFortuneSettingsBtn" type="button" aria-label="Fortune settings">⚙</button>
+          </div>
         </header>
 
         <section class="calendar-surface" id="calendarSurface" aria-label="Date picker">
@@ -191,6 +239,6 @@
       </form>
     </dialog>
 
-    <script src="./vendor/app.js?v=209" type="module"></script>
+    <script src="./vendor/app.js?v=211" type="module"></script>
   </body>
 </html>

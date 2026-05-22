@@ -21,11 +21,26 @@ const GEMINI_TIMEOUT_MS = 7000;
 const GEMINI_CACHE_LIMIT = 30;
 const GEMINI_DETAILS_CACHE_SCHEMA = "gemini-details-v2";
 const GEMINI_DETAILS_CACHE_MIGRATION_SCHEMAS = [GEMINI_DETAILS_CACHE_SCHEMA, "gemini-details-v1", "gemini"];
+const SYNC_STATE_URL = "/api/state";
+const AUTH_SESSION_URL = "/api/auth/session";
+const AUTH_LOGIN_URL = "/api/auth/login";
+const AUTH_REGISTER_URL = "/api/auth/register";
+const AUTH_LOGOUT_URL = "/api/auth/logout";
+const CACHE_USER_META_KEY = "cacheUser.v1";
+const SYNC_TIMEOUT_MS = 7000;
 let fortuneRenderId = 0;
 let fortuneSettingsPreviewId = 0;
 let fortuneClockRefreshKey = "";
 let detailsEditor = null;
 let persistQueue = Promise.resolve();
+let currentUser = null;
+let syncRevision = 0;
+let syncUnavailable = false;
+let lastPersistedSnapshotJson = "";
+let pendingPersistSnapshotJson = "";
+let appEventsWired = false;
+let timerIntervalId = 0;
+let serviceWorkerRegistered = false;
 const fortuneAiCache = new Map();
 let fortuneAiProxyDisabled = false;
 let fortuneAiLastErrorStatus = 0;
@@ -53,6 +68,22 @@ const state = {
 };
 
 const els = {
+  appShell: document.querySelector("#appShell"),
+  authShell: document.querySelector("#authShell"),
+  authLoginForm: document.querySelector("#authLoginForm"),
+  authRegisterForm: document.querySelector("#authRegisterForm"),
+  authLoginUsername: document.querySelector("#authLoginUsername"),
+  authLoginPassword: document.querySelector("#authLoginPassword"),
+  authRegisterUsername: document.querySelector("#authRegisterUsername"),
+  authRegisterPassword: document.querySelector("#authRegisterPassword"),
+  authRegistrationToken: document.querySelector("#authRegistrationToken"),
+  authLoginError: document.querySelector("#authLoginError"),
+  authRegisterError: document.querySelector("#authRegisterError"),
+  authRegisterToggle: document.querySelector("#authRegisterToggle"),
+  authLoginToggle: document.querySelector("#authLoginToggle"),
+  authRegisterTokenBlock: document.querySelector("#authRegisterTokenBlock"),
+  authUserLabel: document.querySelector("#authUserLabel"),
+  logoutBtn: document.querySelector("#logoutBtn"),
   calendarSurface: document.querySelector("#calendarSurface"),
   calendarBody: document.querySelector("#calendarBody"),
   calendarContextTitle: document.querySelector("#calendarContextTitle"),
@@ -118,21 +149,52 @@ init().catch((error) => {
 
 async function init() {
   initDetailsEditor();
+  wireAuthEvents();
+
+  const session = await fetchAuthSession();
+  if (session.authenticated) {
+    await startAuthenticatedApp(session.user);
+  } else {
+    showAuthGate(session);
+  }
+
+  if ("serviceWorker" in navigator) {
+    registerServiceWorker();
+  }
+}
+
+async function startAuthenticatedApp(user) {
+  currentUser = user;
+  syncRevision = 0;
+  syncUnavailable = false;
+  lastPersistedSnapshotJson = "";
+  pendingPersistSnapshotJson = "";
+
+  if (els.authUserLabel) els.authUserLabel.textContent = user?.username || "";
+  if (els.authShell) els.authShell.hidden = true;
+  if (els.appShell) els.appShell.hidden = false;
+
   await loadStoredState();
   cleanupGroups();
   wireEvents();
   render();
-  setInterval(tickTimer, 1000);
 
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker
-      .register("./service-worker.js")
-      .then((registration) => registration.update())
-      .catch(() => {});
-  }
+  if (!timerIntervalId) timerIntervalId = window.setInterval(tickTimer, 1000);
+}
+
+function registerServiceWorker() {
+  if (serviceWorkerRegistered) return;
+  serviceWorkerRegistered = true;
+  navigator.serviceWorker
+    .register("./service-worker.js")
+    .then((registration) => registration.update())
+    .catch(() => {});
 }
 
 function wireEvents() {
+  if (appEventsWired) return;
+  appEventsWired = true;
+
   els.prevCalendarBtn.addEventListener("click", () => moveCalendar(-1));
   els.nextCalendarBtn.addEventListener("click", () => moveCalendar(1));
   els.goTodayBtn.addEventListener("click", goToToday);
@@ -167,6 +229,154 @@ function wireEvents() {
   els.recordDetailsToolbar.addEventListener("click", handleDetailsToolbarClick);
   els.recordStart.addEventListener("blur", normalizeModalTimeInputs);
   els.recordEnd.addEventListener("blur", normalizeModalTimeInputs);
+  els.logoutBtn.addEventListener("click", logout);
+}
+
+function wireAuthEvents() {
+  els.authLoginForm.addEventListener("submit", login);
+  els.authRegisterForm.addEventListener("submit", register);
+  els.authRegisterToggle.addEventListener("click", () => showAuthMode("register"));
+  els.authLoginToggle.addEventListener("click", () => showAuthMode("login"));
+}
+
+async function fetchAuthSession() {
+  try {
+    const response = await fetch(AUTH_SESSION_URL, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+
+    if (!response.ok) throw syncHttpError("Session request failed", response.status);
+    return await response.json();
+  } catch (error) {
+    console.warn("TodidLog authentication is unavailable.", error);
+    return {
+      authenticated: false,
+      hasUsers: true,
+      registrationOpen: false,
+      error: "Server is unavailable.",
+    };
+  }
+}
+
+async function login(event) {
+  event.preventDefault();
+  setAuthError("login", "");
+
+  try {
+    const session = await postAuthJson(AUTH_LOGIN_URL, {
+      username: els.authLoginUsername.value,
+      password: els.authLoginPassword.value,
+    });
+    els.authLoginPassword.value = "";
+    await startAuthenticatedApp(session.user);
+  } catch (error) {
+    setAuthError("login", error.message);
+  }
+}
+
+async function register(event) {
+  event.preventDefault();
+  setAuthError("register", "");
+
+  try {
+    const session = await postAuthJson(AUTH_REGISTER_URL, {
+      username: els.authRegisterUsername.value,
+      password: els.authRegisterPassword.value,
+      registrationToken: els.authRegistrationToken.value,
+    });
+    els.authRegisterPassword.value = "";
+    els.authRegistrationToken.value = "";
+    await startAuthenticatedApp(session.user);
+  } catch (error) {
+    setAuthError("register", error.message);
+  }
+}
+
+async function logout() {
+  await persistQueue.catch(() => {});
+
+  try {
+    await fetch(AUTH_LOGOUT_URL, {
+      method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+  } catch (error) {
+    console.warn("TodidLog logout request failed.", error);
+  }
+
+  await clearLocalSnapshot();
+  resetAppState();
+  showAuthGate(await fetchAuthSession());
+}
+
+async function postAuthJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const data = await safeResponseJson(response);
+  if (!response.ok) throw new Error(data.error || `Request failed with ${response.status}`);
+  return data;
+}
+
+function showAuthGate(session = {}, message = "") {
+  if (els.appShell) els.appShell.hidden = true;
+  if (els.authShell) els.authShell.hidden = false;
+  if (els.authUserLabel) els.authUserLabel.textContent = "";
+
+  const registrationOpen = Boolean(session.registrationOpen);
+  const hasUsers = session.hasUsers !== false;
+  els.authRegisterToggle.dataset.available = String(registrationOpen);
+  els.authRegisterToggle.hidden = !registrationOpen;
+  els.authRegisterTokenBlock.hidden = !hasUsers;
+  setAuthError("login", message || session.error || "");
+  setAuthError("register", "");
+  showAuthMode(!hasUsers && registrationOpen ? "register" : "login");
+}
+
+function showAuthMode(mode) {
+  const isRegister = mode === "register";
+  const registrationOpen = els.authRegisterToggle.dataset.available === "true";
+  els.authLoginForm.hidden = isRegister;
+  els.authRegisterForm.hidden = !isRegister;
+  els.authLoginToggle.hidden = !isRegister;
+  els.authRegisterToggle.hidden = isRegister || !registrationOpen;
+  if (isRegister) els.authRegisterUsername.focus();
+  else els.authLoginUsername.focus();
+}
+
+function setAuthError(mode, message) {
+  const target = mode === "register" ? els.authRegisterError : els.authLoginError;
+  target.textContent = message || "";
+}
+
+function resetAppState() {
+  currentUser = null;
+  syncRevision = 0;
+  syncUnavailable = false;
+  lastPersistedSnapshotJson = "";
+  pendingPersistSnapshotJson = "";
+  state.selectedDate = toDateKey(new Date());
+  state.weekStart = startOfWeek(new Date());
+  state.monthCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  state.sessions = [];
+  state.groups = [];
+  state.active = null;
+  state.fortuneProfile = null;
+  state.selectedIds = new Set();
+  state.isCalendarOpen = false;
+  state.calendarAnimating = false;
+  state.isFortuneDetailsOpen = false;
+  state.modal = null;
+  if (els.recordModal?.open) els.recordModal.close();
+  if (els.fortuneSettingsModal?.open) els.fortuneSettingsModal.close();
 }
 
 function initDetailsEditor() {
@@ -2445,21 +2655,53 @@ function cleanupGroups() {
 }
 
 function persist() {
-  const snapshot = {
-    sessions: structuredClone(state.sessions),
-    groups: structuredClone(state.groups),
-    active: state.active ? structuredClone(state.active) : null,
-    fortuneProfile: state.fortuneProfile ? structuredClone(state.fortuneProfile) : null,
-  };
+  if (!currentUser) return;
+
+  const snapshot = currentStorageSnapshot();
+  const snapshotJson = JSON.stringify(snapshot);
+  if (snapshotJson === lastPersistedSnapshotJson || snapshotJson === pendingPersistSnapshotJson) return;
+  pendingPersistSnapshotJson = snapshotJson;
 
   persistQueue = persistQueue
     .catch(() => {})
-    .then(() => persistSnapshot(snapshot))
-    .catch((error) => console.error("Failed to persist TodidLog state.", error));
+    .then(() => persistSnapshot(snapshot, snapshotJson))
+    .then(() => {
+      lastPersistedSnapshotJson = snapshotJson;
+    })
+    .catch((error) => console.error("Failed to persist TodidLog state.", error))
+    .finally(() => {
+      if (pendingPersistSnapshotJson === snapshotJson) pendingPersistSnapshotJson = "";
+    });
 }
 
 async function loadStoredState() {
   await migrateLocalStorageToIndexedDb();
+  const localSnapshot = await readLocalSnapshot(currentUser);
+  const serverSnapshot = await fetchServerSnapshot();
+  if (!currentUser) throw new Error("Authentication expired.");
+  const startupSnapshot = serverSnapshot?.hasState ? serverSnapshot.state : localSnapshot;
+
+  applyStorageSnapshot(startupSnapshot);
+
+  if (serverSnapshot?.hasState) {
+    await persistLocalSnapshot(startupSnapshot);
+    console.info("TodidLog state loaded from server.", {
+      revision: syncRevision,
+      updatedAt: serverSnapshot.updatedAt,
+    });
+  } else if (serverSnapshot && hasStorageData(localSnapshot)) {
+    await saveServerSnapshot(localSnapshot, JSON.stringify(localSnapshot));
+    console.info("TodidLog local state uploaded to server.", { revision: syncRevision });
+  }
+
+  lastPersistedSnapshotJson = JSON.stringify(startupSnapshot);
+}
+
+async function readLocalSnapshot(user) {
+  const cacheUserEntry = await db.meta.get(CACHE_USER_META_KEY);
+  const cacheUser = cacheUserEntry?.value || null;
+  if (cacheUser?.id && user?.id && Number(cacheUser.id) !== Number(user.id)) return emptyStorageSnapshot();
+
   const [sessions, groups, activeEntry, fortuneProfileEntry] = await Promise.all([
     db.sessions.toArray(),
     db.groups.toArray(),
@@ -2467,10 +2709,12 @@ async function loadStoredState() {
     db.meta.get(FORTUNE_PROFILE_META_KEY),
   ]);
 
-  state.sessions = sessions;
-  state.groups = groups;
-  state.active = activeEntry?.value || null;
-  state.fortuneProfile = fortuneProfileEntry?.value || null;
+  return normalizeStorageSnapshot({
+    sessions,
+    groups,
+    active: activeEntry?.value || null,
+    fortuneProfile: fortuneProfileEntry?.value || null,
+  });
 }
 
 async function migrateLocalStorageToIndexedDb() {
@@ -2504,7 +2748,12 @@ async function migrateLocalStorageToIndexedDb() {
   });
 }
 
-async function persistSnapshot(snapshot) {
+async function persistSnapshot(snapshot, snapshotJson) {
+  await persistLocalSnapshot(snapshot);
+  await saveServerSnapshot(snapshot, snapshotJson);
+}
+
+async function persistLocalSnapshot(snapshot) {
   await db.transaction("rw", db.sessions, db.groups, db.meta, async () => {
     await db.sessions.clear();
     if (snapshot.sessions.length) await db.sessions.bulkPut(snapshot.sessions);
@@ -2517,7 +2766,177 @@ async function persistSnapshot(snapshot) {
 
     if (snapshot.fortuneProfile) await db.meta.put({ key: FORTUNE_PROFILE_META_KEY, value: snapshot.fortuneProfile });
     else await db.meta.delete(FORTUNE_PROFILE_META_KEY);
+
+    if (currentUser) {
+      await db.meta.put({
+        key: CACHE_USER_META_KEY,
+        value: {
+          id: currentUser.id,
+          username: currentUser.username,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
   });
+}
+
+async function clearLocalSnapshot() {
+  await db.transaction("rw", db.sessions, db.groups, db.meta, async () => {
+    await db.sessions.clear();
+    await db.groups.clear();
+    await db.meta.delete(ACTIVE_META_KEY);
+    await db.meta.delete(FORTUNE_PROFILE_META_KEY);
+    await db.meta.delete(CACHE_USER_META_KEY);
+  });
+}
+
+async function fetchServerSnapshot() {
+  if (syncUnavailable) return null;
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${SYNC_STATE_URL}?t=${Date.now()}`, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: controller.signal,
+    });
+
+    if (response.status === 401) {
+      await handleExpiredSession();
+      return null;
+    }
+    if (response.status === 404) {
+      syncUnavailable = true;
+      return null;
+    }
+    if (!response.ok) throw syncHttpError("Server state load failed", response.status);
+
+    const data = await response.json();
+    syncRevision = Number.isInteger(data.revision) ? data.revision : 0;
+    return {
+      hasState: Boolean(data.hasState),
+      revision: syncRevision,
+      updatedAt: data.updatedAt || null,
+      state: normalizeStorageSnapshot(data.state),
+    };
+  } catch (error) {
+    console.warn("TodidLog server sync is unavailable; using IndexedDB cache.", error);
+    return null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function saveServerSnapshot(snapshot, snapshotJson = JSON.stringify(snapshot)) {
+  if (syncUnavailable) return;
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(SYNC_STATE_URL, {
+      method: "PUT",
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({ revision: syncRevision, state: snapshot }),
+    });
+
+    if (response.status === 401) {
+      await handleExpiredSession();
+      return;
+    }
+
+    if (response.status === 409) {
+      const conflict = await safeResponseJson(response);
+      syncRevision = Number.isInteger(conflict.revision) ? conflict.revision : syncRevision;
+      syncUnavailable = true;
+      console.warn("TodidLog server sync conflict. Local cache was kept and server state was not overwritten.", {
+        revision: syncRevision,
+        updatedAt: conflict.updatedAt || null,
+      });
+      return;
+    }
+
+    if (!response.ok) throw syncHttpError("Server state save failed", response.status);
+
+    const data = await response.json();
+    syncRevision = Number.isInteger(data.revision) ? data.revision : syncRevision;
+    lastPersistedSnapshotJson = snapshotJson;
+  } catch (error) {
+    console.warn("TodidLog server sync failed. The IndexedDB cache still has the latest local state.", error);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function currentStorageSnapshot() {
+  return {
+    sessions: structuredClone(state.sessions),
+    groups: structuredClone(state.groups),
+    active: state.active ? structuredClone(state.active) : null,
+    fortuneProfile: state.fortuneProfile ? structuredClone(state.fortuneProfile) : null,
+  };
+}
+
+function applyStorageSnapshot(snapshot) {
+  const normalized = normalizeStorageSnapshot(snapshot);
+  state.sessions = normalized.sessions;
+  state.groups = normalized.groups;
+  state.active = normalized.active;
+  state.fortuneProfile = normalized.fortuneProfile;
+}
+
+function normalizeStorageSnapshot(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    sessions: Array.isArray(source.sessions) ? source.sessions : [],
+    groups: Array.isArray(source.groups) ? source.groups : [],
+    active: source.active && typeof source.active === "object" ? source.active : null,
+    fortuneProfile: source.fortuneProfile && typeof source.fortuneProfile === "object" ? source.fortuneProfile : null,
+  };
+}
+
+function emptyStorageSnapshot() {
+  return {
+    sessions: [],
+    groups: [],
+    active: null,
+    fortuneProfile: null,
+  };
+}
+
+function hasStorageData(snapshot) {
+  return Boolean(
+    snapshot.sessions.length ||
+      snapshot.groups.length ||
+      snapshot.active ||
+      snapshot.fortuneProfile,
+  );
+}
+
+async function handleExpiredSession() {
+  syncUnavailable = true;
+  resetAppState();
+  showAuthGate(await fetchAuthSession(), "Session expired. Sign in again.");
+}
+
+async function safeResponseJson(response) {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+function syncHttpError(message, status) {
+  const error = new Error(`${message} with ${status}`);
+  error.status = status;
+  return error;
 }
 
 function loadJson(key, fallback) {
