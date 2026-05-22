@@ -1,4 +1,4 @@
-const APP_VERSION = "190";
+const APP_VERSION = "197";
 const CACHE_NAME = `todidlog-v${APP_VERSION}`;
 const ASSETS = [
   "./",

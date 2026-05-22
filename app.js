@@ -1111,6 +1111,7 @@ function renderTasks() {
       sortValue: Number.MAX_SAFE_INTEGER,
       crossDay: activeItem.crossDay,
       accentAlpha: activeItem.accentAlpha,
+      railTimeMinute: activeItem.railTimeMinute,
     });
   }
 
@@ -1129,6 +1130,7 @@ function renderTasks() {
           accentAlpha: item.accentAlpha,
           includedMinutes: item.includedMinutes,
           totalMinutes: item.duration,
+          railTimeMinute: item.railTimeMinute,
         });
       }
     } else {
@@ -1143,6 +1145,7 @@ function renderTasks() {
           accentAlpha: item.accentAlpha,
           includedMinutes: item.includedMinutes,
           totalMinutes: item.duration,
+          railTimeMinute: item.railTimeMinute,
         });
       }
     }
@@ -1159,6 +1162,7 @@ function renderTasks() {
         includedMinutes: item.includedMinutes,
         totalMinutes: item.totalMinutes,
         displayDate: state.selectedDate,
+        railTimeMinute: item.railTimeMinute,
       }));
     } else {
       els.taskList.append(renderTaskCard(item.session, {
@@ -1169,6 +1173,7 @@ function renderTasks() {
         includedMinutes: item.includedMinutes,
         totalMinutes: item.totalMinutes,
         displayDate: state.selectedDate,
+        railTimeMinute: item.railTimeMinute,
       }));
     }
   }
@@ -1188,6 +1193,7 @@ function renderTaskCard(session, options) {
   applyTaskAccent(card, options);
 
   card.innerHTML = `
+    ${taskRailTimeTickHtml(options)}
     <button class="task-check" type="button" aria-label="Select task">${selected ? "✓" : ""}</button>
       <div class="task-body">
         <div class="task-main">
@@ -1236,6 +1242,7 @@ function renderGroupCard(group, sessions, options = {}) {
   const minutes = groupDurationMinutes(group, sessions);
 
   card.innerHTML = `
+    ${taskRailTimeTickHtml(options)}
     <button class="task-check" type="button" aria-label="Select task">${selected ? "✓" : ""}</button>
       <div class="task-body">
         <div class="task-main">
@@ -2421,6 +2428,7 @@ function activeSessionForSelectedDate() {
     accentAlpha: crossDay ? taskAccentAlpha(includedMinutes, totalMinutes) : 1,
     includedMinutes,
     totalMinutes,
+    railTimeMinute: clamp(offset + endMinute, 0, 1440),
   };
 }
 
@@ -2683,6 +2691,7 @@ function visibleTimelineItemsForDate(dateKey) {
           isContinuation,
           includedMinutes,
           accentAlpha: isCrossDay ? taskAccentAlpha(includedMinutes, item.duration) : 1,
+          railTimeMinute: displayEndMinute,
           sortValue: displayEndMinute * 60000,
         };
       }),
@@ -2775,6 +2784,11 @@ function taskMetaHtml(parts) {
   return `<div class="task-meta">${parts
     .map((part) => `<span class="${part.className}">${escapeHtml(part.text)}</span>`)
     .join("")}</div>`;
+}
+
+function taskRailTimeTickHtml(options = {}) {
+  if (!Number.isFinite(options.railTimeMinute)) return "";
+  return `<span class="task-time-tick" aria-hidden="true">${escapeHtml(minutesToTime(options.railTimeMinute))}</span>`;
 }
 
 function taskMemoHtml(session) {
