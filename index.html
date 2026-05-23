@@ -61,8 +61,10 @@
             <button class="today-link" id="goTodayBtn" type="button" aria-label="Go to today">Today</button>
           </div>
           <div class="header-actions">
-            <span class="auth-user-label" id="authUserLabel"></span>
-            <button class="header-settings-button" id="openFortuneSettingsBtn" type="button" aria-label="Fortune settings">⚙</button>
+            <button class="header-settings-button" id="openFortuneSettingsBtn" type="button" aria-label="Open profile settings">
+              <span class="header-settings-icon" aria-hidden="true">⚙</span>
+              <span class="auth-user-label" id="authUserLabel"></span>
+            </button>
           </div>
         </header>
 
@@ -195,32 +197,46 @@
               <h2 class="settings-title" id="fortuneSettingsTitle">
                 <span class="settings-title-user" id="fortuneSettingsUser">User</span>
               </h2>
-              <button class="settings-logout-button" id="logoutBtn" type="button">Logout</button>
             </div>
           </div>
-          <button class="icon-button settings-close-button" id="closeFortuneSettingsBtn" type="button" aria-label="Close">×</button>
+          <div class="settings-header-actions">
+            <button class="settings-logout-button" id="logoutBtn" type="button">Logout</button>
+            <span class="settings-header-separator" aria-hidden="true"></span>
+            <button class="icon-button settings-close-button" id="closeFortuneSettingsBtn" type="button" aria-label="Close">×</button>
+          </div>
         </div>
 
         <div class="settings-profile-fields">
-          <label class="settings-field">
-            <span class="settings-field-icon icon-calendar" aria-hidden="true"></span>
-            <span class="settings-field-body">
-              <span class="settings-field-label">Birth date</span>
-              <input id="fortuneBirthDate" type="date" />
-            </span>
-          </label>
           <div class="field-row settings-field-row">
             <label class="settings-field">
-              <span class="settings-field-icon icon-clock" aria-hidden="true"></span>
+              <span class="settings-field-icon icon-calendar" aria-hidden="true"></span>
               <span class="settings-field-body">
-                <span class="settings-field-label">Birth time</span>
-                <input id="fortuneBirthTime" type="time" />
-                <span class="inline-check nested-check">
-                  <input id="fortuneUnknownTime" type="checkbox" />
-                  Unknown time
+                <span class="settings-field-label" id="fortuneBirthDateLabel">Birth date</span>
+                <input id="fortuneBirthDate" type="hidden" />
+                <span class="birth-date-control" role="group" aria-labelledby="fortuneBirthDateLabel">
+                  <input class="birth-date-part birth-date-year" id="fortuneBirthYear" type="text" inputmode="numeric" autocomplete="bday-year" maxlength="4" placeholder="YYYY" aria-label="Birth year" />
+                  <span class="birth-date-separator" aria-hidden="true">.</span>
+                  <input class="birth-date-part" id="fortuneBirthMonth" type="text" inputmode="numeric" autocomplete="bday-month" maxlength="2" placeholder="MM" aria-label="Birth month" />
+                  <span class="birth-date-separator" aria-hidden="true">.</span>
+                  <input class="birth-date-part" id="fortuneBirthDay" type="text" inputmode="numeric" autocomplete="bday-day" maxlength="2" placeholder="DD" aria-label="Birth day" />
                 </span>
               </span>
             </label>
+            <label class="settings-field">
+              <span class="settings-field-icon icon-clock" aria-hidden="true"></span>
+              <span class="settings-field-body">
+                <span class="settings-label-row">
+                  <span class="settings-field-label">Birth time</span>
+                  <span class="inline-check settings-label-check">
+                    <input id="fortuneUnknownTime" type="checkbox" />
+                    Unknown
+                  </span>
+                </span>
+                <input id="fortuneBirthTime" type="time" />
+              </span>
+            </label>
+          </div>
+          <div class="field-row settings-field-row">
             <label class="settings-field">
               <span class="settings-field-icon icon-person" aria-hidden="true"></span>
               <span class="settings-field-body">
@@ -231,15 +247,15 @@
                 </select>
               </span>
             </label>
+            <label class="settings-field">
+              <span class="settings-field-icon icon-pin" aria-hidden="true"></span>
+              <span class="settings-field-body">
+                <span class="settings-field-label">Birthplace <span class="label-note">Optional</span></span>
+                <input id="fortuneBirthplace" type="text" list="fortuneBirthplaceOptions" placeholder="Seoul, Busan, Tokyo" autocomplete="off" />
+                <datalist id="fortuneBirthplaceOptions"></datalist>
+              </span>
+            </label>
           </div>
-          <label class="settings-field">
-            <span class="settings-field-icon icon-pin" aria-hidden="true"></span>
-            <span class="settings-field-body">
-              <span class="settings-field-label">Birthplace <span class="label-note">Optional</span></span>
-              <input id="fortuneBirthplace" type="text" list="fortuneBirthplaceOptions" placeholder="Seoul, Busan, Tokyo" autocomplete="off" />
-              <datalist id="fortuneBirthplaceOptions"></datalist>
-            </span>
-          </label>
           <div class="fortune-settings-chart hidden" id="fortuneNatalPreview"></div>
           <label class="settings-field">
             <span class="settings-field-icon icon-language" aria-hidden="true"></span>
@@ -254,7 +270,7 @@
         </div>
         <p class="form-error" id="fortuneSettingsError" role="alert"></p>
         <div class="modal-actions settings-actions">
-          <button class="button danger hidden" id="deleteFortuneProfileBtn" type="button">Delete</button>
+          <button class="button danger hidden" id="deleteFortuneProfileBtn" type="button">Clear profile</button>
           <button class="button primary" type="submit">Save</button>
         </div>
       </form>

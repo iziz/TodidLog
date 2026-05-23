@@ -133,6 +133,9 @@ const els = {
   fortuneSettingsUser: document.querySelector("#fortuneSettingsUser"),
   closeFortuneSettingsBtn: document.querySelector("#closeFortuneSettingsBtn"),
   fortuneBirthDate: document.querySelector("#fortuneBirthDate"),
+  fortuneBirthYear: document.querySelector("#fortuneBirthYear"),
+  fortuneBirthMonth: document.querySelector("#fortuneBirthMonth"),
+  fortuneBirthDay: document.querySelector("#fortuneBirthDay"),
   fortuneBirthTime: document.querySelector("#fortuneBirthTime"),
   fortuneBirthplace: document.querySelector("#fortuneBirthplace"),
   fortuneBirthplaceOptions: document.querySelector("#fortuneBirthplaceOptions"),
@@ -214,7 +217,10 @@ function wireEvents() {
   els.deleteFortuneProfileBtn.addEventListener("click", deleteFortuneProfile);
   els.fortuneUnknownTime.addEventListener("change", updateFortuneTimeState);
   els.fortuneBirthplace.addEventListener("input", updateBirthplaceSuggestions);
-  els.fortuneBirthDate.addEventListener("input", renderFortuneSettingsNatalPreview);
+  for (const input of [els.fortuneBirthYear, els.fortuneBirthMonth, els.fortuneBirthDay]) {
+    input.addEventListener("input", handleBirthDatePartInput);
+    input.addEventListener("blur", normalizeBirthDatePartInput);
+  }
   els.fortuneBirthTime.addEventListener("input", renderFortuneSettingsNatalPreview);
   els.fortuneBirthplace.addEventListener("input", renderFortuneSettingsNatalPreview);
   els.fortuneGender.addEventListener("change", renderFortuneSettingsNatalPreview);
@@ -1702,6 +1708,7 @@ function openFortuneSettings() {
   const profile = normalizedFortuneProfile(state.fortuneProfile || {});
   els.fortuneSettingsUser.textContent = currentUser?.username || "User";
   els.fortuneBirthDate.value = profile.birthDate || "";
+  syncBirthDatePartsFromValue(profile.birthDate || "");
   els.fortuneBirthTime.value = profile.birthTime || "12:00";
   els.fortuneBirthplace.value = profile.birthplace?.label || "";
   els.fortuneGender.value = profile.gender || "M";
@@ -1743,6 +1750,40 @@ function closeFortuneSettings() {
 
 function closeFortuneSettingsFromBackdrop(event) {
   if (event.target === els.fortuneSettingsModal) closeFortuneSettings();
+}
+
+function handleBirthDatePartInput(event) {
+  const input = event.currentTarget;
+  const maxLength = input === els.fortuneBirthYear ? 4 : 2;
+  input.value = input.value.replace(/\D/g, "").slice(0, maxLength);
+  syncFortuneBirthDateFromParts();
+  renderFortuneSettingsNatalPreview();
+}
+
+function normalizeBirthDatePartInput(event) {
+  const input = event.currentTarget;
+  input.value = input.value.replace(/\D/g, "");
+  if (input !== els.fortuneBirthYear && input.value) input.value = input.value.padStart(2, "0").slice(-2);
+  if (input === els.fortuneBirthYear) input.value = input.value.slice(0, 4);
+  syncFortuneBirthDateFromParts();
+  renderFortuneSettingsNatalPreview();
+}
+
+function syncBirthDatePartsFromValue(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  els.fortuneBirthYear.value = match?.[1] || "";
+  els.fortuneBirthMonth.value = match?.[2] || "";
+  els.fortuneBirthDay.value = match?.[3] || "";
+  els.fortuneBirthDate.value = match ? value : "";
+}
+
+function syncFortuneBirthDateFromParts() {
+  const year = els.fortuneBirthYear.value.replace(/\D/g, "").slice(0, 4);
+  const month = els.fortuneBirthMonth.value.replace(/\D/g, "").slice(0, 2);
+  const day = els.fortuneBirthDay.value.replace(/\D/g, "").slice(0, 2);
+  const value = year.length === 4 && month && day ? `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}` : "";
+  els.fortuneBirthDate.value = value;
+  return value;
 }
 
 function updateFortuneTimeState() {
@@ -1807,10 +1848,11 @@ function renderFortuneSettingsNatalSummary(summary) {
 function fortuneProfileFromSettingsForm() {
   const birthplaceText = els.fortuneBirthplace.value.trim();
   const birthplace = birthplaceText ? resolveBirthplace(birthplaceText) : null;
+  const birthDate = syncFortuneBirthDateFromParts();
   return {
     birthplaceText,
     profile: {
-      birthDate: els.fortuneBirthDate.value,
+      birthDate,
       birthTime: els.fortuneBirthTime.value || "12:00",
       birthplace,
       gender: els.fortuneGender.value === "F" ? "F" : "M",
