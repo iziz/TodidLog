@@ -21,13 +21,13 @@ npm run dev
 Then open:
 
 ```text
-http://localhost:5173
+http://localhost:5151
 ```
 
 Devices on the same local network can open the LAN URL printed by the server, for example:
 
 ```text
-http://192.168.0.6:5173
+http://192.168.0.6:5151
 ```
 
 ## Configuration

@@ -10,7 +10,7 @@ import { loadEnv } from "./env.mjs";
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const env = loadEnv(rootDir);
 const host = env.HOST || "0.0.0.0";
-const port = Number(env.PORT || 5173);
+const port = Number(env.PORT || 5151);
 const geminiApiKey = env.TODIDLOG_GEMINI_API_KEY || env.GEMINI_API_KEY || "";
 const geminiTimeoutMs = Number(env.GEMINI_TIMEOUT_MS || 7000);
 const geminiMaxOutputTokens = Number(env.GEMINI_MAX_OUTPUT_TOKENS || 1024);
