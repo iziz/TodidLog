@@ -160,11 +160,6 @@ button {
   white-space: nowrap;
 }
 
-.logout-button {
-  color: #515a61;
-  font-size: 12px;
-}
-
 .planner {
   position: relative;
 }
@@ -604,11 +599,143 @@ h1 {
 .fortune-settings-chart {
   display: grid;
   gap: 7px;
+  margin-left: 30px;
   margin-top: 0;
-  padding: 9px 10px;
+  padding: 12px 16px;
   border: 1px solid rgba(219, 226, 232, 0.82);
   border-radius: var(--radius);
   background: #f7f9fb;
+}
+
+.settings-profile-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-field {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  align-items: start;
+}
+
+.settings-field-row {
+  margin-top: 0;
+}
+
+.settings-field-body {
+  display: block;
+  min-width: 0;
+}
+
+.settings-field-label {
+  display: inline-flex;
+  min-height: 14px;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.settings-field-icon {
+  position: relative;
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin-top: 35px;
+  color: var(--orange-strong);
+  opacity: 0.86;
+}
+
+.settings-field-icon::before,
+.settings-field-icon::after {
+  position: absolute;
+  box-sizing: border-box;
+  content: "";
+}
+
+.icon-calendar::before {
+  inset: 4px 1px 1px;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+}
+
+.icon-calendar::after {
+  top: 8px;
+  right: 4px;
+  left: 4px;
+  height: 2px;
+  background: currentColor;
+}
+
+.icon-clock::before {
+  inset: 1px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+}
+
+.icon-clock::after {
+  top: 6px;
+  left: 10px;
+  width: 5px;
+  height: 6px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+}
+
+.icon-person::before {
+  top: 1px;
+  left: 6px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+}
+
+.icon-person::after {
+  right: 3px;
+  bottom: 1px;
+  left: 3px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
+
+.icon-pin::before {
+  top: 2.5px;
+  left: 3.5px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+}
+
+.icon-pin::after {
+  top: 6.5px;
+  left: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.icon-language::before {
+  inset: 1px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+}
+
+.icon-language::after {
+  top: 4px;
+  bottom: 4px;
+  left: 9px;
+  width: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow:
+    -5px 4px 0 -1px currentColor,
+    5px 4px 0 -1px currentColor;
 }
 
 .fortune-natal-title {
@@ -626,9 +753,9 @@ h1 {
 
 .fortune-natal-row {
   display: grid;
-  grid-template-columns: minmax(48px, max-content) minmax(0, 1fr);
+  grid-template-columns: minmax(42px, max-content) minmax(0, 1fr);
   align-items: baseline;
-  gap: 8px;
+  gap: 10px;
 }
 
 .fortune-natal-label {
@@ -636,6 +763,7 @@ h1 {
   font-size: 10px;
   font-weight: 900;
   line-height: 1.2;
+  text-align: left;
   overflow-wrap: anywhere;
   word-break: keep-all;
 }
@@ -652,6 +780,54 @@ h2 {
   margin-bottom: 0;
   font-size: 21px;
   line-height: 1.2;
+}
+
+.settings-identity {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-title {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+}
+
+.settings-title-user {
+  min-width: 0;
+  max-width: 152px;
+  overflow: hidden;
+  color: var(--orange-strong);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-logout-button {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8a949c;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.settings-logout-button:hover {
+  color: #515a61;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .modal-title-input {
@@ -917,6 +1093,11 @@ h2 {
   width: 40px;
   place-items: center;
   font-size: 20px;
+}
+
+.settings-close-button {
+  border-color: transparent;
+  background: transparent;
 }
 
 .primary {
@@ -1231,13 +1412,13 @@ label {
 }
 
 .task-card:first-child .task-check {
-  top: 16px;
-  transform: none;
+  top: 27px;
+  transform: translateY(-50%);
 }
 
 .task-card:first-child .task-time-tick {
-  top: 16px;
-  transform: none;
+  top: 27px;
+  transform: translateY(-50%);
 }
 
 .task-body {
@@ -1655,6 +1836,10 @@ textarea {
   margin: 0;
 }
 
+.nested-check {
+  margin-top: 7px;
+}
+
 .tag-chip-list {
   display: flex;
   flex-wrap: wrap;
@@ -1905,6 +2090,12 @@ textarea {
 
 .modal-actions {
   margin-top: 4px;
+}
+
+.settings-actions .button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .form-error {

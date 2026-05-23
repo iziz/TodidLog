@@ -62,7 +62,6 @@
           </div>
           <div class="header-actions">
             <span class="auth-user-label" id="authUserLabel"></span>
-            <button class="today-link logout-button" id="logoutBtn" type="button">Logout</button>
             <button class="header-settings-button" id="openFortuneSettingsBtn" type="button" aria-label="Fortune settings">⚙</button>
           </div>
         </header>
@@ -192,47 +191,69 @@
         <div class="modal-header">
           <div>
             <p class="section-kicker">Profile</p>
-            <h2>My Info</h2>
+            <div class="settings-identity">
+              <h2 class="settings-title" id="fortuneSettingsTitle">
+                <span class="settings-title-user" id="fortuneSettingsUser">User</span>
+              </h2>
+              <button class="settings-logout-button" id="logoutBtn" type="button">Logout</button>
+            </div>
           </div>
-          <button class="icon-button" id="closeFortuneSettingsBtn" type="button" aria-label="Close">×</button>
+          <button class="icon-button settings-close-button" id="closeFortuneSettingsBtn" type="button" aria-label="Close">×</button>
         </div>
 
-        <label>
-          Birth date
-          <input id="fortuneBirthDate" type="date" />
-        </label>
-        <div class="field-row">
-          <label>
-            Birth time
-            <input id="fortuneBirthTime" type="time" />
+        <div class="settings-profile-fields">
+          <label class="settings-field">
+            <span class="settings-field-icon icon-calendar" aria-hidden="true"></span>
+            <span class="settings-field-body">
+              <span class="settings-field-label">Birth date</span>
+              <input id="fortuneBirthDate" type="date" />
+            </span>
           </label>
-          <label>
-            Gender
-            <select id="fortuneGender">
-              <option value="M">Male</option>
-              <option value="F">Female</option>
-            </select>
+          <div class="field-row settings-field-row">
+            <label class="settings-field">
+              <span class="settings-field-icon icon-clock" aria-hidden="true"></span>
+              <span class="settings-field-body">
+                <span class="settings-field-label">Birth time</span>
+                <input id="fortuneBirthTime" type="time" />
+                <span class="inline-check nested-check">
+                  <input id="fortuneUnknownTime" type="checkbox" />
+                  Unknown time
+                </span>
+              </span>
+            </label>
+            <label class="settings-field">
+              <span class="settings-field-icon icon-person" aria-hidden="true"></span>
+              <span class="settings-field-body">
+                <span class="settings-field-label">Gender</span>
+                <select id="fortuneGender">
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                </select>
+              </span>
+            </label>
+          </div>
+          <label class="settings-field">
+            <span class="settings-field-icon icon-pin" aria-hidden="true"></span>
+            <span class="settings-field-body">
+              <span class="settings-field-label">Birthplace <span class="label-note">Optional</span></span>
+              <input id="fortuneBirthplace" type="text" list="fortuneBirthplaceOptions" placeholder="Seoul, Busan, Tokyo" autocomplete="off" />
+              <datalist id="fortuneBirthplaceOptions"></datalist>
+            </span>
+          </label>
+          <div class="fortune-settings-chart hidden" id="fortuneNatalPreview"></div>
+          <label class="settings-field">
+            <span class="settings-field-icon icon-language" aria-hidden="true"></span>
+            <span class="settings-field-body">
+              <span class="settings-field-label">Fortune language</span>
+              <select id="fortuneLanguage">
+                <option value="en">English</option>
+                <option value="ko">Korean</option>
+              </select>
+            </span>
           </label>
         </div>
-        <label>
-          Birthplace <span class="label-note">Optional</span>
-          <input id="fortuneBirthplace" type="text" list="fortuneBirthplaceOptions" placeholder="Seoul, Busan, Tokyo" autocomplete="off" />
-          <datalist id="fortuneBirthplaceOptions"></datalist>
-        </label>
-        <label>
-          Fortune language
-          <select id="fortuneLanguage">
-            <option value="en">English</option>
-            <option value="ko">Korean</option>
-          </select>
-        </label>
-        <label class="inline-check">
-          <input id="fortuneUnknownTime" type="checkbox" />
-          Unknown time
-        </label>
-        <div class="fortune-settings-chart hidden" id="fortuneNatalPreview"></div>
         <p class="form-error" id="fortuneSettingsError" role="alert"></p>
-        <div class="modal-actions">
+        <div class="modal-actions settings-actions">
           <button class="button danger hidden" id="deleteFortuneProfileBtn" type="button">Delete</button>
           <button class="button primary" type="submit">Save</button>
         </div>

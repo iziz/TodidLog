@@ -130,6 +130,7 @@ const els = {
   closeModalBtn: document.querySelector("#closeModalBtn"),
   fortuneSettingsModal: document.querySelector("#fortuneSettingsModal"),
   fortuneSettingsForm: document.querySelector("#fortuneSettingsForm"),
+  fortuneSettingsUser: document.querySelector("#fortuneSettingsUser"),
   closeFortuneSettingsBtn: document.querySelector("#closeFortuneSettingsBtn"),
   fortuneBirthDate: document.querySelector("#fortuneBirthDate"),
   fortuneBirthTime: document.querySelector("#fortuneBirthTime"),
@@ -1699,6 +1700,7 @@ async function writeClipboardText(text) {
 
 function openFortuneSettings() {
   const profile = normalizedFortuneProfile(state.fortuneProfile || {});
+  els.fortuneSettingsUser.textContent = currentUser?.username || "User";
   els.fortuneBirthDate.value = profile.birthDate || "";
   els.fortuneBirthTime.value = profile.birthTime || "12:00";
   els.fortuneBirthplace.value = profile.birthplace?.label || "";
@@ -1780,10 +1782,6 @@ async function renderFortuneSettingsNatalPreview() {
 }
 
 function renderFortuneSettingsNatalSummary(summary) {
-  const title = document.createElement("span");
-  title.className = "fortune-natal-title";
-  title.textContent = summary.title;
-
   const list = document.createElement("span");
   list.className = "fortune-natal-list";
 
@@ -1803,7 +1801,7 @@ function renderFortuneSettingsNatalSummary(summary) {
     list.append(row);
   }
 
-  els.fortuneNatalPreview.replaceChildren(title, list);
+  els.fortuneNatalPreview.replaceChildren(list);
 }
 
 function fortuneProfileFromSettingsForm() {
