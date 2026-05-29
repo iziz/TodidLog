@@ -909,6 +909,7 @@ export function computeDailyFortune(profile, dateKey, workContext = {}) {
   const seed = fortuneSeed(profile, dateKey, dayPillar, hourPillar, primary, birthInput, natal);
   const auxiliary = buildDailyAuxiliarySignal(copy, natal, dayPillar, hourPillar, seed);
   const ziwei = buildZiweiSignal(copy, birthInput, selectedDate, seed);
+  const signals = { dayPillar, hourPillar, secondary, relationCount: relations.length, ziwei, auxiliary };
 
   if (!primary) {
     const neutral = pickSeeded(copy.neutralVariants || [], `${seed}:neutral`) || {
@@ -919,8 +920,8 @@ export function computeDailyFortune(profile, dateKey, workContext = {}) {
       title: copy.title,
       headline: `${dayPillar} · ${enrichFortuneHeadline(neutral.headline, auxiliary)}`,
       body: enrichFortuneBody(neutral.body, auxiliary),
-      details: [],
-      references: buildFortuneReferences(copy, null, { dayPillar, hourPillar, secondary, relationCount: relations.length, ziwei, auxiliary }, context),
+      details: buildFortuneDetails(copy, null, signals, context, seed, language),
+      references: buildFortuneReferences(copy, null, signals, context),
       language,
     };
   }
@@ -930,8 +931,8 @@ export function computeDailyFortune(profile, dateKey, workContext = {}) {
     title: copy.title,
     headline: `${dayPillar} · ${enrichFortuneHeadline(headline, auxiliary)}`,
     body: enrichFortuneBody(body, auxiliary),
-    details: [],
-    references: buildFortuneReferences(copy, primary, { dayPillar, hourPillar, secondary, relationCount: relations.length, ziwei, auxiliary }, context),
+    details: buildFortuneDetails(copy, primary, signals, context, seed, language),
+    references: buildFortuneReferences(copy, primary, signals, context),
     language,
   };
 }
@@ -978,6 +979,49 @@ function enrichFortuneHeadline(headline, auxiliary) {
 
 function enrichFortuneBody(body, auxiliary) {
   return joinSentences(body, auxiliary?.selectedFocus || "");
+}
+
+function buildFortuneDetails(copy, relation, signals, context, seed, language) {
+  const labels = copy.detailLabels || {};
+  const base = fortuneDetailCopy(copy, relation);
+  const secondary = secondaryRelationDetail(copy, signals.secondary);
+  const work = workSignalDetail(copy, context, seed, language);
+  const ziwei = signals.ziwei || {};
+
+  return [
+    fortuneDetailRow(labels.flow, joinSentences(base.flow, ziwei.flow)),
+    fortuneDetailRow(labels.action, joinSentences(base.action, work, ziwei.action)),
+    fortuneDetailRow(labels.care, joinSentences(base.care, secondary, ziwei.care)),
+  ].filter(Boolean);
+}
+
+function fortuneDetailCopy(copy, relation) {
+  if (!relation) return copy.neutralDetails || {};
+  if (isElementRelation(relation) && copy.elementDetails?.[relation.detail]) return copy.elementDetails[relation.detail];
+  return copy.relationDetails?.[relation.type] || copy.neutralDetails || {};
+}
+
+function secondaryRelationDetail(copy, relation) {
+  if (!relation) return "";
+  const relationName = copy.relationNames?.[relation.type] || relation.type;
+  return fillTemplate(copy.secondarySignal, { relation: relationName });
+}
+
+function workSignalDetail(copy, context, seed, language) {
+  const key = workSignalKey(context);
+  const template = pickSeeded(copy.workSignals?.[key]?.detail || [], `${seed}:work:${key}`);
+  return fillTemplate(template, {
+    duration: formatWorkDuration(context.totalMinutes, language),
+    tasks: context.taskCount,
+    tag: context.topTag,
+  });
+}
+
+function fortuneDetailRow(label, text) {
+  const cleanLabel = String(label || "").trim();
+  const cleanText = String(text || "").replace(/\s+/g, " ").trim();
+  if (!cleanLabel || !cleanText) return null;
+  return { label: cleanLabel, text: cleanText };
 }
 
 function buildFortuneReferences(copy, relation, signals, context) {
@@ -1499,6 +1543,20 @@ function fillTemplate(template, values) {
 
 function joinSentences(...parts) {
   return parts.map((part) => String(part || "").trim()).filter(Boolean).join(" ");
+}
+
+function formatWorkDuration(minutes, language) {
+  const safeMinutes = Math.max(0, Math.floor(Number(minutes) || 0));
+  const hours = Math.floor(safeMinutes / 60);
+  const mins = safeMinutes % 60;
+  if (language === "ko") {
+    if (!hours) return `${mins}분`;
+    if (!mins) return `${hours}시간`;
+    return `${hours}시간 ${mins}분`;
+  }
+  if (!hours) return `${mins}m`;
+  if (!mins) return `${hours}h`;
+  return `${hours}h ${mins}m`;
 }
 
 function numberOrZero(value) {

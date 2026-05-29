@@ -1069,6 +1069,7 @@ function renderFortuneSummaryContent(fortune, profile, context, dateKey) {
     details.className = "fortune-summary-details";
     details.id = "fortuneSummaryDetails";
     details.dataset.language = fortune.language;
+    if (detailItems.length > 0) details.dataset.loaded = "true";
 
     renderFortuneDetailItems(details, detailItems);
     renderFortuneDetailsRefresh(details, { toggle, fortune, profile, context, dateKey });
@@ -1216,12 +1217,22 @@ async function refreshFortuneDetails({ toggle, details, fortune, profile, contex
     renderFortuneDetailItems(details, detailItems);
     details.dataset.loaded = "true";
   } else {
-    renderFortuneDetailsMessage(details, fortune.language, fortuneDetailsUnavailableStatus());
-    details.dataset.loaded = "true";
+    const fallbackItems = fallbackFortuneDetailItems(fortune);
+    if (fallbackItems.length > 0) {
+      renderFortuneDetailItems(details, fallbackItems);
+      details.dataset.loaded = "true";
+    } else {
+      renderFortuneDetailsMessage(details, fortune.language, fortuneDetailsUnavailableStatus());
+      details.dataset.loaded = "true";
+    }
   }
 
   renderFortuneDetailsRefresh(details, { toggle, fortune, profile, context, dateKey });
   updateFortuneDetailsToggle(toggle, details);
+}
+
+function fallbackFortuneDetailItems(fortune) {
+  return (fortune.details || []).filter((item) => item?.label && item?.text);
 }
 
 function fortuneDetailsStatusText(language, status) {
@@ -1617,9 +1628,9 @@ function buildMonthReport() {
   const reportByDate = dateKeys.map((dateKey) => ({ dateKey, items: reportItemsForDate(dateKey) }));
   const total = reportByDate.reduce((sum, reportDay) => sum + reportDay.items.reduce((daySum, item) => daySum + item.minutes, 0), 0);
   const lines = [
-    `${state.monthCursor.toLocaleString("en", { month: "long", year: "numeric" })} Report`,
-    `Range: ${toDateKey(monthStart)} ~ ${toDateKey(monthEnd)}`,
-    `Monthly total: ${formatDuration(total)}`,
+    `${formatReportMonth(state.monthCursor)} 작업내역 리포트`,
+    `기간: ${toDateKey(monthStart)} ~ ${toDateKey(monthEnd)}`,
+    `월 합계: ${formatReportDuration(total)}`,
     "",
   ];
 
@@ -1628,30 +1639,66 @@ function buildMonthReport() {
     const dayTotal = items.reduce((sum, item) => sum + item.minutes, 0);
     if (!items.length) continue;
     hasWork = true;
-    lines.push(`${dateKey} (${weekdayShort(parseDateKey(dateKey))}) · Total ${formatDuration(dayTotal)}`);
+    lines.push(`${dateKey} (${weekdayKorean(parseDateKey(dateKey))}) · 합계 ${formatReportDuration(dayTotal)}`);
 
     for (const item of items) {
-      lines.push(`- ${item.title} · ${formatDuration(item.minutes)} (${item.range})`);
-      if (item.tags.length) lines.push(`  Tags: ${item.tags.join(", ")}`);
-      if (item.memo) lines.push(...indentReportMemo(item.memo));
+      lines.push(`- ${formatReportItemTitle(item)} (${item.range})`);
     }
 
     lines.push("");
   }
 
-  if (!hasWork) lines.push("No records");
+  if (!hasWork) lines.push("기록 없음");
   return lines.join("\n").trimEnd();
+}
+
+function formatReportMonth(date) {
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
+}
+
+function formatReportDuration(minutes) {
+  if (!minutes) return "0분";
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (!hours) return `${mins}분`;
+  if (!mins) return `${hours}시간`;
+  return `${hours}시간 ${mins}분`;
+}
+
+function weekdayKorean(date) {
+  return ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
 }
 
 function reportItemsForDate(dateKey) {
   return visibleTimelineItemsForDate(dateKey)
-    .map((item) => ({
-      ...reportItemDetails(item),
-      minutes: item.duration,
-      range: formatTimeRangeFromMinutes(item.startMinute, item.endMinute, item.ownerDate, dateKey),
-      sortValue: item.sortValue,
-    }))
-    .sort((a, b) => b.sortValue - a.sortValue);
+    .map((item) => {
+      const segment = reportItemSegment(item, dateKey);
+      return {
+        ...reportItemDetails(item),
+        minutes: reportItemMinutes(item),
+        range: formatTimeRangeFromMinutes(segment.start, segment.end),
+        isContinuation: item.isContinuation,
+        sortStart: segment.start,
+        sortEnd: segment.end,
+      };
+    })
+    .sort((a, b) => a.sortStart - b.sortStart || a.sortEnd - b.sortEnd || a.title.localeCompare(b.title));
+}
+
+function formatReportItemTitle(item) {
+  return item.isContinuation ? `[전일 이어짐] ${item.title}` : item.title;
+}
+
+function reportItemMinutes(item) {
+  return Number.isFinite(item.includedMinutes) ? item.includedMinutes : item.duration;
+}
+
+function reportItemSegment(item, dateKey) {
+  const offset = dateOffsetMinutes(item.ownerDate, dateKey);
+  return {
+    start: clamp(offset + item.startMinute, 0, 1440),
+    end: clamp(offset + item.endMinute, 0, 1440),
+  };
 }
 
 function reportItemDetails(item) {
@@ -1671,14 +1718,6 @@ function reportItemDetails(item) {
     memo: String(session?.memo || "").trim(),
     tags: session?.tags || [],
   };
-}
-
-function indentReportMemo(memo) {
-  return memoToPlainText(memo)
-    .trim()
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => `  Details: ${line}`);
 }
 
 async function writeClipboardText(text) {
